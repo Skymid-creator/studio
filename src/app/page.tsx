@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -8,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
 import { generateFocusTip } from '@/ai/flows/generate-focus-tip';
 import { Bell, Play, Pause, BarChart2, Lightbulb, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
@@ -18,7 +16,6 @@ export default function Home() {
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [notificationPermission, setNotificationPermission] = useState<string>('default');
-  const [isSilent, setIsSilent] = useState<boolean>(false);
   const [stats, setStats] = useState({ prompts: 0, focused: 0, distracted: 0 });
   const [userPreferences, setUserPreferences] = useState<string>('');
   const [pastTips, setPastTips] = useState<string[]>([]);
@@ -47,55 +44,55 @@ export default function Home() {
   }, [toast]);
 
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
       return;
     }
-
-    navigator.serviceWorker.ready.then((registration) => {
-        if (registration.active) {
-            registration.active.postMessage({ type: 'SHOW_NOTIFICATION' });
-            setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
-            setIsAwaitingResponse(true);
-        }
-    });
+    navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION' });
+    setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
   }, [notificationPermission]);
   
   useEffect(() => {
     if ('Notification' in window) {
-      setNotificationPermission(Notification.permission);
+        setNotificationPermission(Notification.permission);
     }
-    
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'notification-action') {
-        const { action } = event.data;
-        if (action === 'focused' || action === 'distracted' || action === 'closed') {
-          handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
-        }
-      }
-    };
 
     const registerServiceWorker = async () => {
-      if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('/sw.js');
-          navigator.serviceWorker.addEventListener('message', handleMessage);
-        } catch (error) {
-          console.error('Service Worker registration failed:', error);
-          toast({
-            title: 'App Error',
-            description: 'Could not initialize a required component. Notifications may not work.',
-            variant: 'destructive',
-          });
+        if ('serviceWorker' in navigator) {
+            try {
+                await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.ready; // Wait for the service worker to be active
+                
+                const handleMessage = (event: MessageEvent) => {
+                    if (event.data?.type === 'notification-action') {
+                        const { action } = event.data;
+                        if (action === 'focused' || action === 'distracted' || action === 'closed') {
+                          handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
+                        }
+                    }
+                };
+                
+                navigator.serviceWorker.addEventListener('message', handleMessage);
+                
+                return () => {
+                    navigator.serviceWorker.removeEventListener('message', handleMessage);
+                };
+
+            } catch (error) {
+                console.error('Service Worker registration failed:', error);
+                toast({
+                    title: 'App Error',
+                    description: 'Could not initialize a required component. Notifications may not work.',
+                    variant: 'destructive',
+                });
+            }
         }
-      }
     };
 
-    registerServiceWorker();
-
+    const cleanupPromise = registerServiceWorker();
+    
     return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
+        cleanupPromise.then(cleanup => cleanup && cleanup());
     };
   }, [handleFocusResponse, toast]);
 
@@ -231,10 +228,6 @@ export default function Home() {
                     <p className="text-4xl font-bold font-mono tracking-wider text-primary">{formatTime(timeLeft)}</p>
                   </div>
                 )}
-                <div className="flex items-center space-x-2 pt-2">
-                    <Switch id="silent-mode" checked={isSilent} onCheckedChange={setIsSilent} aria-label="Silent notifications" />
-                    <Label htmlFor="silent-mode">Silent notifications</Label>
-                </div>
               </div>
             )}
           </CardContent>
