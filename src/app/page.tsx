@@ -29,14 +29,14 @@ export default function Home() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
-  const handleFocusResponse = useCallback((type: 'focused' | 'distracted') => {
+  const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
       if(type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
         toast({
             title: "Great job!",
             description: "Focus session logged.",
         });
-      } else {
+      } else if (type === 'distracted'){
         setStats(s => ({ ...s, distracted: s.distracted + 1 }));
         toast({
             title: "It's okay!",
@@ -47,28 +47,28 @@ export default function Home() {
   }, [toast]);
   
   const showNotification = useCallback(async () => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
       return;
     }
-
+    
     try {
-      // Use .ready to ensure the service worker is active and ready to handle actions.
-      // This is more robust and helps prevent race conditions, especially in Firefox.
-      const registration = await navigator.serviceWorker.ready;
-      
-      registration.showNotification('FocusPrompt', {
-        body: 'Are you focusing?',
-        tag: 'focus-prompt',
-        renotify: true,
-        silent: isSilent,
-        actions: [
-          { action: 'focused', title: 'I was focused' },
-          { action: 'distracted', title: 'I got distracted' },
-        ]
-      });
+        navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            options: {
+                body: 'Are you focusing?',
+                tag: 'focus-prompt',
+                renotify: true,
+                silent: isSilent,
+                actions: [
+                  { action: 'focused', title: 'I was focused' },
+                  { action: 'distracted', title: 'I got distracted' },
+                ]
+            }
+        });
+        
+        setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+        setIsAwaitingResponse(true);
 
-      setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-      setIsAwaitingResponse(true);
     } catch (err) {
       console.error('Error showing notification:', err);
       toast({
@@ -87,8 +87,8 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          const registration = await navigator.serviceWorker.register('/sw.js');
-          console.log('Service Worker registered with scope:', registration.scope);
+          await navigator.serviceWorker.register('/sw.js');
+          console.log('Service Worker registered');
         } catch (error) {
           console.log('Service Worker registration failed:', error);
         }
@@ -100,11 +100,8 @@ export default function Home() {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'notification-action') {
         const { action } = event.data;
-        if (action === 'focused' || action === 'distracted') {
+        if (action === 'focused' || action === 'distracted' || action === 'closed') {
           handleFocusResponse(action);
-        } else if (action === 'closed') {
-          // User dismissed the notification without interaction
-          setIsAwaitingResponse(false);
         }
       }
     };
@@ -264,11 +261,11 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-green-500/20 text-green-800 dark:bg-green-500/10 dark:text-green-400 rounded-lg border border-green-500/30">
+              <div className="p-4 bg-green-500 text-white rounded-lg">
                 <p className="text-4xl font-bold">{stats.focused}</p>
                 <p className="text-sm font-medium">Times Focused</p>
               </div>
-              <div className="p-4 bg-red-500/20 text-red-800 dark:bg-red-500/10 dark:text-red-400 rounded-lg border border-red-500/30">
+              <div className="p-4 bg-red-500 text-white rounded-lg">
                 <p className="text-4xl font-bold">{stats.distracted}</p>
                 <p className="text-sm font-medium">Times Distracted</p>
               </div>
