@@ -1,14 +1,13 @@
-
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Play, Pause, BarChart2, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Bell, Play, Pause, BarChart2 } from 'lucide-react';
 
 export default function FocusTimer() {
   const [intervalMinutes, setIntervalMinutes] = useState<number>(2);
@@ -17,7 +16,6 @@ export default function FocusTimer() {
   const [notificationPermission, setNotificationPermission] = useState<string>('default');
   const [isSilent, setIsSilent] = useState<boolean>(false);
   const [stats, setStats] = useState({ prompts: 0, focused: 0, distracted: 0 });
-  const [isAwaitingResponse, setIsAwaitingResponse] = useState<boolean>(false);
 
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
@@ -29,7 +27,6 @@ export default function FocusTimer() {
   const focusResponseHandlerRef = useRef((type: 'focused' | 'distracted' | 'closed') => {});
 
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
-      setIsAwaitingResponse(false);
       if (type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
         toast({ title: "Great job!", description: "Focus session logged." });
@@ -37,6 +34,7 @@ export default function FocusTimer() {
         setStats(s => ({ ...s, distracted: s.distracted + 1 }));
         toast({ title: "It's okay!", description: "Distraction logged. You can get back on track!" });
       }
+      // No need to handle 'closed' as the timer loop is now independent
   }, [toast]);
 
   useEffect(() => {
@@ -85,7 +83,6 @@ export default function FocusTimer() {
     navigator.serviceWorker.ready.then(registration => {
       registration.active?.postMessage({ type: 'show-notification', options: { silent: isSilent } });
       setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-      setIsAwaitingResponse(true);
     });
   }, [notificationPermission, isSilent]);
   
@@ -145,10 +142,6 @@ export default function FocusTimer() {
     setIsTimerRunning(prev => !prev);
   };
   
-  const onPageFocusResponse = (type: 'focused' | 'distracted') => {
-      handleFocusResponse(type);
-  }
-
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -211,14 +204,6 @@ export default function FocusTimer() {
             </div>
           </div>
         </CardContent>
-        <CardFooter className="flex justify-center gap-4 pt-4">
-            <Button variant="outline" onClick={() => onPageFocusResponse('focused')} disabled={!isAwaitingResponse}>
-                <ThumbsUp className="mr-2 h-4 w-4" /> I was focused
-            </Button>
-            <Button variant="outline" onClick={() => onPageFocusResponse('distracted')} disabled={!isAwaitingResponse}>
-                <ThumbsDown className="mr-2 h-4 w-4" /> I got distracted
-            </Button>
-        </CardFooter>
       </Card>
     </>
   );
