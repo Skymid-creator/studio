@@ -19,8 +19,12 @@ export default function Home() {
 
   const { toast } = useToast();
   
-  // Use a ref to hold the timer ID to prevent issues with stale closures
   const timerId = useRef<NodeJS.Timeout | null>(null);
+
+  // By using a ref, we can access the latest intervalMinutes value inside the
+  // setInterval callback without making the useEffect hook dependent on it.
+  const latestIntervalMinutes = useRef(intervalMinutes);
+  latestIntervalMinutes.current = intervalMinutes;
 
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
       if(type === 'focused') {
@@ -49,7 +53,10 @@ export default function Home() {
     navigator.serviceWorker.controller.postMessage('show-notification');
   }, [notificationPermission]);
 
-  // This useEffect handles registering the service worker and listening for messages
+  // We also put the notification function in a ref for the same reason.
+  const latestShowNotification = useRef(showNotification);
+  latestShowNotification.current = showNotification;
+
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
@@ -58,10 +65,7 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          // Register the service worker
           await navigator.serviceWorker.register('/sw.js');
-          
-          // Wait for the service worker to be ready
           await navigator.serviceWorker.ready;
           
           const handleMessage = (event: MessageEvent) => {
@@ -93,38 +97,46 @@ export default function Home() {
     };
   }, [handleFocusResponse, toast]);
 
-  // This robust useEffect ONLY handles the timer logic.
-  // It only depends on `isTimerRunning` to prevent being re-run unnecessarily.
+  // This is the robust timer effect.
   useEffect(() => {
-    const stopTimer = () => {
+    // If the timer shouldn't be running, clear any existing interval and reset the time.
+    if (!isTimerRunning) {
+      if (timerId.current) {
+        clearInterval(timerId.current);
+        timerId.current = null;
+      }
+      setTimeLeft(0);
+      return;
+    }
+
+    // When the timer starts, set the initial time left using the ref.
+    setTimeLeft(latestIntervalMinutes.current * 60);
+
+    // Start the interval.
+    timerId.current = setInterval(() => {
+      setTimeLeft(prevTime => {
+        // When the countdown reaches zero...
+        if (prevTime <= 1) {
+          // ...trigger the notification using the ref to the latest function.
+          latestShowNotification.current();
+          // ...and reset the timer for the next interval, using the ref for the latest interval value.
+          return latestIntervalMinutes.current * 60; 
+        }
+        // Otherwise, just decrement the time.
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    // The cleanup function clears the interval when the effect re-runs or the component unmounts.
+    return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
         timerId.current = null;
       }
     };
-  
-    if (isTimerRunning) {
-      // Set initial time when timer starts
-      setTimeLeft(intervalMinutes * 60);
-  
-      timerId.current = setInterval(() => {
-        setTimeLeft(prevTime => {
-          if (prevTime <= 1) {
-            showNotification();
-            // Reset for the next interval using the latest intervalMinutes value
-            return intervalMinutes * 60; 
-          }
-          return prevTime - 1;
-        });
-      }, 1000);
-    } else {
-      stopTimer();
-      setTimeLeft(0);
-    }
-  
-    // Cleanup function: runs when isTimerRunning changes or component unmounts.
-    return stopTimer;
-  }, [isTimerRunning, intervalMinutes, showNotification]);
+  // THIS IS THE CRITICAL PART: This effect ONLY depends on `isTimerRunning`.
+  // It will not re-run when intervalMinutes or other state changes, preventing duplicate timers.
+  }, [isTimerRunning]);
 
 
   const handleRequestPermission = () => {
