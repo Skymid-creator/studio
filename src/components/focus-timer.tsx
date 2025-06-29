@@ -21,106 +21,7 @@ export default function FocusTimer() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
-  const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
-      if (type === 'focused') {
-        setStats(s => ({ ...s, focused: s.focused + 1 }));
-        toast({
-            title: "Great job!",
-            description: "Focus session logged.",
-        });
-      } else if (type === 'distracted') {
-        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
-        toast({
-            title: "It's okay!",
-            description: "Distraction logged. You can get back on track!",
-        });
-      }
-      setIsAwaitingResponse(false);
-  }, [toast]);
-  
-  const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !navigator.serviceWorker.controller) {
-      console.warn("Notification permission not granted or service worker not controlling.");
-      // Attempt to re-request permission if it's default
-      if (notificationPermission === 'default') {
-        handleRequestPermission();
-      }
-      return;
-    }
-    navigator.serviceWorker.controller.postMessage({ type: 'show-notification', options: { silent: isSilent } });
-    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-    setIsAwaitingResponse(true);
-  }, [notificationPermission, isSilent]);
-  
-  useEffect(() => {
-    const registerAndListen = async () => {
-        if ('serviceWorker' in navigator && 'Notification' in window) {
-            try {
-                const registration = await navigator.serviceWorker.register('/sw.js');
-                console.log('Service Worker registered with scope:', registration.scope);
-                
-                await navigator.serviceWorker.ready;
-                
-                const handleMessage = (event: MessageEvent) => {
-                    if (event.data?.type === 'notification-action') {
-                        const { action } = event.data;
-                         if (action === 'focused' || action === 'distracted' || action === 'closed') {
-                            handleFocusResponse(action);
-                        }
-                    }
-                };
-                navigator.serviceWorker.addEventListener('message', handleMessage);
-                
-                setNotificationPermission(Notification.permission);
-                
-                return () => {
-                    navigator.serviceWorker.removeEventListener('message', handleMessage);
-                };
-
-            } catch (error) {
-                console.error('Service Worker registration failed:', error);
-                toast({
-                    title: 'Service Worker Error',
-                    description: 'Could not set up notifications.',
-                    variant: 'destructive',
-                });
-            }
-        }
-    };
-
-    registerAndListen();
-  }, [handleFocusResponse, toast]);
-
-
-  useEffect(() => {
-    if (!isTimerRunning) {
-      if (timerId.current) {
-        clearInterval(timerId.current);
-        timerId.current = null;
-      }
-      return;
-    }
-  
-    setTimeLeft(intervalMinutes * 60);
-  
-    timerId.current = setInterval(() => {
-      setTimeLeft(prevTime => {
-        if (prevTime <= 1) {
-          showNotification();
-          return intervalMinutes * 60;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
-  
-    return () => {
-      if (timerId.current) {
-        clearInterval(timerId.current);
-      }
-    };
-  }, [isTimerRunning, intervalMinutes, showNotification]);
-
-  const handleRequestPermission = () => {
+  const handleRequestPermission = useCallback(() => {
     if (!('Notification' in window)) {
       toast({
         title: 'Error',
@@ -144,7 +45,122 @@ export default function FocusTimer() {
         });
       }
     });
-  };
+  }, [toast]);
+
+  const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
+      if (type === 'focused') {
+        setStats(s => ({ ...s, focused: s.focused + 1 }));
+        toast({
+            title: "Great job!",
+            description: "Focus session logged.",
+        });
+      } else if (type === 'distracted') {
+        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
+        toast({
+            title: "It's okay!",
+            description: "Distraction logged. You can get back on track!",
+        });
+      }
+      setIsAwaitingResponse(false);
+  }, [toast]);
+  
+  const focusResponseHandlerRef = useRef(handleFocusResponse);
+  useEffect(() => {
+    focusResponseHandlerRef.current = handleFocusResponse;
+  }, [handleFocusResponse]);
+
+  const showNotification = useCallback(() => {
+    if (notificationPermission !== 'granted' || !navigator.serviceWorker.controller) {
+      console.warn("Notification permission not granted or service worker not controlling.");
+      if (notificationPermission === 'default') {
+        handleRequestPermission();
+      }
+      return;
+    }
+    navigator.serviceWorker.controller.postMessage({ type: 'show-notification', options: { silent: isSilent } });
+    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
+  }, [notificationPermission, isSilent, handleRequestPermission]);
+  
+  const showNotificationRef = useRef(showNotification);
+  useEffect(() => {
+    showNotificationRef.current = showNotification;
+  }, [showNotification]);
+  
+  const intervalRef = useRef(intervalMinutes);
+  useEffect(() => {
+    intervalRef.current = intervalMinutes;
+  }, [intervalMinutes]);
+  
+  useEffect(() => {
+    const registerAndListen = async () => {
+        if ('serviceWorker' in navigator && 'Notification' in window) {
+            try {
+                const registration = await navigator.serviceWorker.register('/sw.js');
+                console.log('Service Worker registered with scope:', registration.scope);
+                
+                await navigator.serviceWorker.ready;
+                
+                const handleMessage = (event: MessageEvent) => {
+                    if (event.data?.type === 'notification-action') {
+                        const { action } = event.data;
+                         if (action === 'focused' || action === 'distracted' || action === 'closed') {
+                            focusResponseHandlerRef.current(action);
+                        }
+                    }
+                };
+                navigator.serviceWorker.addEventListener('message', handleMessage);
+                
+                setNotificationPermission(Notification.permission);
+                
+                return () => {
+                    navigator.serviceWorker.removeEventListener('message', handleMessage);
+                };
+
+            } catch (error) {
+                console.error('Service Worker registration failed:', error);
+                toast({
+                    title: 'Service Worker Error',
+                    description: 'Could not set up notifications.',
+                    variant: 'destructive',
+                });
+            }
+        }
+    };
+
+    registerAndListen();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
+  useEffect(() => {
+    if (timerId.current) {
+        clearInterval(timerId.current);
+        timerId.current = null;
+    }
+
+    if (!isTimerRunning) {
+      return;
+    }
+  
+    setTimeLeft(intervalRef.current * 60);
+  
+    timerId.current = setInterval(() => {
+      setTimeLeft(prevTime => {
+        if (prevTime <= 1) {
+          showNotificationRef.current();
+          return intervalRef.current * 60;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+  
+    return () => {
+      if (timerId.current) {
+        clearInterval(timerId.current);
+      }
+    };
+  }, [isTimerRunning]);
 
   const handleStartStopTimer = () => {
     if (notificationPermission !== 'granted') {
