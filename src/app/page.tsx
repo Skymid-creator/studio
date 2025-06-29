@@ -28,6 +28,33 @@ export default function Home() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
+  const showNotification = useCallback(() => {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+      return;
+    }
+
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification('FocusPrompt', {
+        body: 'Are you focusing?',
+        tag: 'focus-prompt',
+        silent: isSilent,
+        actions: [
+          { action: 'focused', title: 'I was focused' },
+          { action: 'distracted', title: 'I got distracted' }
+        ]
+      });
+    });
+    
+    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
+  }, [notificationPermission, isSilent]);
+
+  const showNotificationRef = useRef(showNotification);
+  useEffect(() => {
+    showNotificationRef.current = showNotification;
+  }, [showNotification]);
+
+
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
@@ -69,65 +96,37 @@ export default function Home() {
     };
   }, [toast]);
 
-  const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
-      return;
-    }
-
-    navigator.serviceWorker.ready.then(registration => {
-      registration.showNotification('FocusPrompt', {
-        body: 'Are you focusing?',
-        tag: 'focus-prompt',
-        silent: isSilent,
-        actions: [
-          { action: 'focused', title: 'I was focused' },
-          { action: 'distracted', title: 'I got distracted' }
-        ]
-      });
-    });
-    
-    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-    setIsAwaitingResponse(true);
-  }, [notificationPermission, isSilent]);
-  
-  const showNotificationRef = useRef(showNotification);
+  // A single, robust useEffect to manage the timer
   useEffect(() => {
-    showNotificationRef.current = showNotification;
-  }, [showNotification]);
+    const stopTimer = () => {
+      if (timerId.current) {
+        clearInterval(timerId.current);
+        timerId.current = null;
+      }
+    };
 
-  const stopTimer = useCallback(() => {
-    if (timerId.current) {
-      clearInterval(timerId.current);
-      timerId.current = null;
-    }
-  }, []);
-
-  const startTimer = useCallback(() => {
-    stopTimer();
-    setTimeLeft(intervalMinutes * 60);
-
-    timerId.current = setInterval(() => {
-      setTimeLeft(prevTime => {
-        if (prevTime <= 1) {
-          showNotificationRef.current();
-          return intervalMinutes * 60;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
-  }, [intervalMinutes, stopTimer]);
-
-
-  useEffect(() => {
     if (isTimerRunning) {
-      startTimer();
+      // Set initial time immediately and start a new timer
+      setTimeLeft(intervalMinutes * 60);
+
+      timerId.current = setInterval(() => {
+        setTimeLeft(prevTime => {
+          if (prevTime <= 1) {
+            showNotificationRef.current();
+            return intervalMinutes * 60; // Reset for next interval
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
     } else {
+      // Stop the timer and reset time
       stopTimer();
       setTimeLeft(0);
     }
 
+    // Cleanup function to stop the timer when the component unmounts or dependencies change
     return stopTimer;
-  }, [isTimerRunning, startTimer, stopTimer]);
+  }, [isTimerRunning, intervalMinutes]);
 
   const handleRequestPermission = () => {
     if (!('Notification' in window)) {
