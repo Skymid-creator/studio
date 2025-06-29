@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -28,6 +29,23 @@ export default function Home() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
+  const handleFocusResponse = useCallback((type: 'focused' | 'distracted') => {
+      if(type === 'focused') {
+        setStats(s => ({ ...s, focused: s.focused + 1 }));
+        toast({
+            title: "Great job!",
+            description: "Focus session logged.",
+        });
+      } else {
+        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
+        toast({
+            title: "It's okay!",
+            description: "Distraction logged. You can get back on track!",
+        });
+      }
+      setIsAwaitingResponse(false);
+  }, [toast]);
+  
   const showNotification = useCallback(() => {
     if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
       return;
@@ -49,27 +67,12 @@ export default function Home() {
     });
   }, [notificationPermission, isSilent]);
   
+  // Use a ref to ensure the latest version of the functions are always available
   const showNotificationRef = useRef(showNotification);
   useEffect(() => {
     showNotificationRef.current = showNotification;
   }, [showNotification]);
 
-  const handleFocusResponse = useCallback((type: 'focused' | 'distracted') => {
-      if(type === 'focused') {
-        setStats(s => ({ ...s, focused: s.focused + 1 }));
-        toast({
-            title: "Great job!",
-            description: "Focus session logged.",
-        });
-      } else {
-        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
-        toast({
-            title: "It's okay!",
-            description: "Distraction logged. You can get back on track!",
-        });
-      }
-      setIsAwaitingResponse(false);
-  }, [toast]);
   const handleFocusResponseRef = useRef(handleFocusResponse);
   useEffect(() => {
     handleFocusResponseRef.current = handleFocusResponse;
@@ -258,11 +261,11 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent text-accent-foreground rounded-lg">
+              <div className="p-4 bg-accent/80 text-accent-foreground rounded-lg">
                 <p className="text-4xl font-bold">{stats.focused}</p>
                 <p className="text-sm font-medium">Times Focused</p>
               </div>
-              <div className="p-4 bg-destructive text-destructive-foreground rounded-lg">
+              <div className="p-4 bg-destructive/80 text-destructive-foreground rounded-lg">
                 <p className="text-4xl font-bold">{stats.distracted}</p>
                 <p className="text-sm font-medium">Times Distracted</p>
               </div>
