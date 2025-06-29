@@ -40,13 +40,13 @@ export default function FocusTimer() {
       } else if (permission === 'denied') {
         toast({
           title: 'Permission Denied',
-          description: 'You have denied notification permissions. Please enable them in your browser settings to use the app.',
+          description: 'You have denied notification permissions. Please enable them in your browser settings.',
           variant: 'destructive',
         });
       }
     });
   }, [toast]);
-
+  
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
       if (type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
@@ -64,82 +64,78 @@ export default function FocusTimer() {
       setIsAwaitingResponse(false);
   }, [toast]);
   
+  // Using a ref to hold the handler ensures the latest version is always available in listeners without re-binding.
   const focusResponseHandlerRef = useRef(handleFocusResponse);
   useEffect(() => {
     focusResponseHandlerRef.current = handleFocusResponse;
   }, [handleFocusResponse]);
 
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !navigator.serviceWorker.controller) {
-      console.warn("Notification permission not granted or service worker not controlling.");
-      if (notificationPermission === 'default') {
-        handleRequestPermission();
-      }
+    if (notificationPermission !== 'granted') {
+      console.warn("Notification permission not granted.");
+      if (notificationPermission === 'default') handleRequestPermission();
       return;
     }
-    navigator.serviceWorker.controller.postMessage({ type: 'show-notification', options: { silent: isSilent } });
-    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-    setIsAwaitingResponse(true);
+    
+    // Using .ready ensures the service worker is active and ready to receive messages.
+    navigator.serviceWorker.ready.then(registration => {
+      if (!registration.active) {
+        console.warn("Service worker is not active.");
+        return;
+      }
+      registration.active.postMessage({ type: 'show-notification', options: { silent: isSilent } });
+      setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+      setIsAwaitingResponse(true);
+    }).catch(error => {
+      console.error("Service worker ready error:", error);
+    });
   }, [notificationPermission, isSilent, handleRequestPermission]);
-  
+
+  // Use refs to pass stable values to the timer's interval callback.
   const showNotificationRef = useRef(showNotification);
-  useEffect(() => {
-    showNotificationRef.current = showNotification;
-  }, [showNotification]);
+  useEffect(() => { showNotificationRef.current = showNotification }, [showNotification]);
   
   const intervalRef = useRef(intervalMinutes);
-  useEffect(() => {
-    intervalRef.current = intervalMinutes;
-  }, [intervalMinutes]);
-  
-  useEffect(() => {
-    const registerAndListen = async () => {
-        if ('serviceWorker' in navigator && 'Notification' in window) {
-            try {
-                const registration = await navigator.serviceWorker.register('/sw.js');
-                console.log('Service Worker registered with scope:', registration.scope);
-                
-                await navigator.serviceWorker.ready;
-                
-                const handleMessage = (event: MessageEvent) => {
-                    if (event.data?.type === 'notification-action') {
-                        const { action } = event.data;
-                         if (action === 'focused' || action === 'distracted' || action === 'closed') {
-                            focusResponseHandlerRef.current(action);
-                        }
-                    }
-                };
-                navigator.serviceWorker.addEventListener('message', handleMessage);
-                
-                setNotificationPermission(Notification.permission);
-                
-                return () => {
-                    navigator.serviceWorker.removeEventListener('message', handleMessage);
-                };
+  useEffect(() => { intervalRef.current = intervalMinutes }, [intervalMinutes]);
 
-            } catch (error) {
-                console.error('Service Worker registration failed:', error);
-                toast({
-                    title: 'Service Worker Error',
-                    description: 'Could not set up notifications.',
-                    variant: 'destructive',
-                });
+  // This useEffect correctly sets up and tears down the service worker listener once.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator && 'Notification' in window)) {
+        console.log('Service Worker or Notifications not supported.');
+        return;
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'notification-action') {
+            const { action } = event.data;
+            if (['focused', 'distracted', 'closed'].includes(action)) {
+                focusResponseHandlerRef.current(action as 'focused' | 'distracted' | 'closed');
             }
         }
     };
+    
+    navigator.serviceWorker.addEventListener('message', handleMessage);
 
-    registerAndListen();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    navigator.serviceWorker.register('/sw.js')
+        .then(registration => console.log('Service Worker registered with scope:', registration.scope))
+        .catch(error => console.error('Service Worker registration failed:', error));
+
+    setNotificationPermission(Notification.permission);
+
+    // The cleanup function is critical and will now be called correctly.
+    return () => {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+    };
   }, []);
 
-
+  // This useEffect correctly manages the timer, only re-running when the timer is started or stopped.
   useEffect(() => {
     if (timerId.current) {
-        clearInterval(timerId.current);
-        timerId.current = null;
+      clearInterval(timerId.current);
     }
 
     if (!isTimerRunning) {
+      setTimeLeft(0);
       return;
     }
   
@@ -158,6 +154,7 @@ export default function FocusTimer() {
     return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
+        timerId.current = null;
       }
     };
   }, [isTimerRunning]);
@@ -167,10 +164,7 @@ export default function FocusTimer() {
       handleRequestPermission();
       return;
     }
-    setIsTimerRunning(!isTimerRunning);
-    if (!isTimerRunning) {
-      setTimeLeft(intervalMinutes * 60);
-    }
+    setIsTimerRunning(prev => !prev);
   };
   
   const onPageFocusResponse = (type: 'focused' | 'distracted') => {
