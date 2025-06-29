@@ -16,7 +16,7 @@ export default function Home() {
   const [intervalMinutes, setIntervalMinutes] = useState<number>(2);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [timeLeft, setTimeLeft] = useState<number>(0);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [notificationPermission, setNotificationPermission] = useState<string>('default');
   const [isSilent, setIsSilent] = useState<boolean>(false);
   const [stats, setStats] = useState({ prompts: 0, focused: 0, distracted: 0 });
   const [userPreferences, setUserPreferences] = useState<string>('');
@@ -32,28 +32,23 @@ export default function Home() {
     if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
       return;
     }
-
-    navigator.serviceWorker.ready.then(registration => {
-      registration.showNotification('FocusPrompt', {
-        body: 'Are you focusing?',
-        tag: 'focus-prompt',
-        silent: isSilent,
-        actions: [
-          { action: 'focused', title: 'I was focused' },
-          { action: 'distracted', title: 'I got distracted' }
-        ]
-      });
+    navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) {
+            reg.showNotification('FocusPrompt', {
+                body: 'Are you focusing?',
+                tag: 'focus-prompt',
+                silent: isSilent,
+            });
+            setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+            setIsAwaitingResponse(true);
+        }
     });
-    
-    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-    setIsAwaitingResponse(true);
   }, [notificationPermission, isSilent]);
-
+  
   const showNotificationRef = useRef(showNotification);
   useEffect(() => {
     showNotificationRef.current = showNotification;
   }, [showNotification]);
-
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -61,42 +56,26 @@ export default function Home() {
     }
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'notification-action') {
-        setIsAwaitingResponse(false);
-        if (event.data.action === 'focused') {
-          setStats(s => ({ ...s, focused: s.focused + 1 }));
-          toast({
-            title: "Great job!",
-            description: "Focus session logged.",
-          });
-        } else if (event.data.action === 'distracted') {
-          setStats(s => ({ ...s, distracted: s.distracted + 1 }));
-          toast({
-            title: "It's okay!",
-            description: "Distraction logged. You can get back on track!",
-          });
+        if (event.data?.type === 'notification-closed') {
+            setIsAwaitingResponse(false);
         }
-      } else if (event.data?.type === 'notification-closed') {
-        setIsAwaitingResponse(false);
-      }
     };
-
+    
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => console.log('Service Worker registered with scope:', registration.scope))
-        .catch(error => console.log('Service Worker registration failed:', error));
+        navigator.serviceWorker.register('/sw.js')
+            .then(registration => console.log('Service Worker registered with scope:', registration.scope))
+            .catch(error => console.log('Service Worker registration failed:', error));
 
-      navigator.serviceWorker.addEventListener('message', handleMessage);
+        navigator.serviceWorker.addEventListener('message', handleMessage);
     }
-
+    
     return () => {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleMessage);
-      }
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.removeEventListener('message', handleMessage);
+        }
     };
-  }, [toast]);
+  }, []);
 
-  // A single, robust useEffect to manage the timer
   useEffect(() => {
     const stopTimer = () => {
       if (timerId.current) {
@@ -106,25 +85,22 @@ export default function Home() {
     };
 
     if (isTimerRunning) {
-      // Set initial time immediately and start a new timer
       setTimeLeft(intervalMinutes * 60);
 
       timerId.current = setInterval(() => {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
             showNotificationRef.current();
-            return intervalMinutes * 60; // Reset for next interval
+            return intervalMinutes * 60;
           }
           return prevTime - 1;
         });
       }, 1000);
     } else {
-      // Stop the timer and reset time
       stopTimer();
       setTimeLeft(0);
     }
 
-    // Cleanup function to stop the timer when the component unmounts or dependencies change
     return stopTimer;
   }, [isTimerRunning, intervalMinutes]);
 
@@ -161,6 +137,23 @@ export default function Home() {
     }
     setIsTimerRunning(!isTimerRunning);
   };
+  
+  const handleFocusResponse = (type: 'focused' | 'distracted') => {
+      if(type === 'focused') {
+        setStats(s => ({ ...s, focused: s.focused + 1 }));
+        toast({
+            title: "Great job!",
+            description: "Focus session logged.",
+        });
+      } else {
+        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
+        toast({
+            title: "It's okay!",
+            description: "Distraction logged. You can get back on track!",
+        });
+      }
+      setIsAwaitingResponse(false);
+  }
 
   const handleGetFocusTip = async () => {
     setIsLoadingTip(true);
@@ -172,7 +165,7 @@ export default function Home() {
       });
       const newTip = result.focusTip;
       setFocusTip(newTip);
-      setPastTips(prev => [...prev.slice(-5), newTip]); // Keep last 5 tips to avoid large payloads
+      setPastTips(prev => [...prev.slice(-5), newTip]);
     } catch (error) {
       console.error('Error generating focus tip:', error);
       toast({
@@ -243,21 +236,21 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent rounded-lg">
+              <div className="p-4 bg-accent/80 rounded-lg">
                 <p className="text-4xl font-bold text-accent-foreground">{stats.focused}</p>
                 <p className="text-sm text-accent-foreground/80">Times Focused</p>
               </div>
-              <div className="p-4 bg-destructive rounded-lg">
+              <div className="p-4 bg-destructive/80 rounded-lg">
                 <p className="text-4xl font-bold text-destructive-foreground">{stats.distracted}</p>
                 <p className="text-sm text-destructive-foreground/80">Times Distracted</p>
               </div>
             </div>
           </CardContent>
           <CardFooter className="flex justify-center gap-4 pt-4">
-              <Button variant="outline" onClick={() => setStats(s => ({...s, focused: s.focused + 1}))} disabled={isAwaitingResponse}>
+              <Button variant="outline" onClick={() => handleFocusResponse('focused')} disabled={!isAwaitingResponse}>
                   <ThumbsUp className="mr-2 h-4 w-4" /> I was focused
               </Button>
-              <Button variant="outline" onClick={() => setStats(s => ({...s, distracted: s.distracted + 1}))} disabled={isAwaitingResponse}>
+              <Button variant="outline" onClick={() => handleFocusResponse('distracted')} disabled={!isAwaitingResponse}>
                   <ThumbsDown className="mr-2 h-4 w-4" /> I got distracted
               </Button>
           </CardFooter>
