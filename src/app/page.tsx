@@ -42,26 +42,21 @@ export default function Home() {
   }, [toast]);
   
   const showNotification = useCallback(async () => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+    if (notificationPermission !== 'granted') {
         return;
     }
     
-    // This is the key change: we wait for the service worker to be ready.
-    const registration = await navigator.serviceWorker.ready;
-    if (!registration.active) {
+    if (!('serviceWorker' in navigator)) {
       return;
     }
-
+    
     setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
     setIsAwaitingResponse(true);
-    
-    // We can now safely ask it to show the notification.
-    registration.showNotification('Focus Check!', {
-        body: 'Are you still focused on your task?',
-        actions: [
-          { action: 'focused', title: '✅ I was focused' },
-          { action: 'distracted', title: '❌ I got distracted' }
-        ]
+
+    navigator.serviceWorker.ready.then(registration => {
+      registration.active?.postMessage({
+        type: 'show-notification',
+      });
     });
   }, [notificationPermission]);
 
@@ -76,7 +71,7 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          const registration = await navigator.serviceWorker.register('/sw.js');
+          await navigator.serviceWorker.register('/sw.js');
           
           const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification-action') {
