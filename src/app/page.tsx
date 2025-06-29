@@ -49,11 +49,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!isTimerRunning) {
-      setTimeLeft(0);
       return;
     }
-
-    setTimeLeft(intervalMinutes * 60);
 
     const timer = setInterval(() => {
       setTimeLeft((prevTime) => {
@@ -98,6 +95,11 @@ export default function Home() {
     if (notificationPermission !== 'granted') {
       handleRequestPermission();
       return;
+    }
+    if (!isTimerRunning) {
+      setTimeLeft(intervalMinutes * 60);
+    } else {
+      setTimeLeft(0);
     }
     setIsTimerRunning(!isTimerRunning);
   };
