@@ -78,7 +78,9 @@ export default function FocusTimer() {
     navigator.serviceWorker.addEventListener('message', handleMessage);
   
     return () => {
-      navigator.serviceWorker.removeEventListener('message', handleMessage);
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
     };
   }, [handleFocusResponse]);
 
@@ -111,7 +113,7 @@ export default function FocusTimer() {
         clearInterval(timerId.current);
       }
     };
-  }, [isTimerRunning]);
+  }, [isTimerRunning, intervalMinutes, showNotification]);
 
   const handleRequestPermission = () => {
     if (!('Notification' in window)) {
@@ -145,6 +147,9 @@ export default function FocusTimer() {
       return;
     }
     setIsTimerRunning(!isTimerRunning);
+    if (!isTimerRunning) {
+      setTimeLeft(intervalMinutes * 60);
+    }
   };
   
   const onPageFocusResponse = (type: 'focused' | 'distracted') => {
