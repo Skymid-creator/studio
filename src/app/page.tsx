@@ -6,12 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
-import { generateFocusTip } from '@/ai/flows/generate-focus-tip';
-import { Bell, Play, Pause, BarChart2, Lightbulb, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
+import { Bell, Play, Pause, BarChart2, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 export default function Home() {
   const [intervalMinutes, setIntervalMinutes] = useState<number>(2);
@@ -20,10 +17,6 @@ export default function Home() {
   const [notificationPermission, setNotificationPermission] = useState<string>('default');
   const [isSilent, setIsSilent] = useState<boolean>(false);
   const [stats, setStats] = useState({ prompts: 0, focused: 0, distracted: 0 });
-  const [userPreferences, setUserPreferences] = useState<string>('');
-  const [pastTips, setPastTips] = useState<string[]>([]);
-  const [focusTip, setFocusTip] = useState<string>('');
-  const [isLoadingTip, setIsLoadingTip] = useState<boolean>(false);
   const [isAwaitingResponse, setIsAwaitingResponse] = useState<boolean>(false);
 
   const { toast } = useToast();
@@ -47,15 +40,9 @@ export default function Home() {
   }, [toast]);
   
   const showNotification = useCallback(async () => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
-      return;
-    }
-
-    try {
-      // Use .ready to ensure the service worker is active and ready to handle actions.
-      // This is more robust and helps prevent race conditions, especially in Firefox.
-      const registration = await navigator.serviceWorker.ready;
-      
+    if (notificationPermission !== 'granted') return;
+  
+    navigator.serviceWorker.ready.then((registration) => {
       registration.showNotification('FocusPrompt', {
         body: 'Are you focusing?',
         tag: 'focus-prompt',
@@ -64,19 +51,18 @@ export default function Home() {
         actions: [
           { action: 'focused', title: 'I was focused' },
           { action: 'distracted', title: 'I got distracted' },
-        ]
+        ],
       });
-
       setStats(s => ({ ...s, prompts: s.prompts + 1 }));
       setIsAwaitingResponse(true);
-    } catch (err) {
+    }).catch(err => {
       console.error('Error showing notification:', err);
       toast({
         title: 'Could not show notification',
         description: 'There was an issue with the notification service.',
         variant: 'destructive'
       });
-    }
+    });
   }, [notificationPermission, isSilent, toast]);
   
   useEffect(() => {
@@ -103,7 +89,6 @@ export default function Home() {
         if (action === 'focused' || action === 'distracted') {
           handleFocusResponse(action);
         } else if (action === 'closed') {
-          // User dismissed the notification without interaction
           setIsAwaitingResponse(false);
         }
       }
@@ -118,31 +103,23 @@ export default function Home() {
 
 
   useEffect(() => {
-    const stopTimer = () => {
-      if (timerId.current) {
-        clearInterval(timerId.current);
-        timerId.current = null;
-      }
-    };
-
-    if (isTimerRunning) {
-      setTimeLeft(intervalMinutes * 60);
-
-      timerId.current = setInterval(() => {
-        setTimeLeft(prevTime => {
-          if (prevTime <= 1) {
-            showNotification();
-            return intervalMinutes * 60;
-          }
-          return prevTime - 1;
-        });
-      }, 1000);
-    } else {
-      stopTimer();
-      setTimeLeft(0);
+    if (!isTimerRunning) {
+      return;
     }
 
-    return stopTimer;
+    setTimeLeft(intervalMinutes * 60);
+
+    const timer = setInterval(() => {
+      setTimeLeft(prevTime => {
+        if (prevTime <= 1) {
+          showNotification();
+          return intervalMinutes * 60; 
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, [isTimerRunning, intervalMinutes, showNotification]);
 
   const handleRequestPermission = () => {
@@ -182,29 +159,6 @@ export default function Home() {
   const onPageFocusResponse = (type: 'focused' | 'distracted') => {
       handleFocusResponse(type);
   }
-
-  const handleGetFocusTip = async () => {
-    setIsLoadingTip(true);
-    setFocusTip('');
-    try {
-      const result = await generateFocusTip({
-        userPreferences: userPreferences || 'general productivity and well-being',
-        pastResponses: pastTips.join('\n'),
-      });
-      const newTip = result.focusTip;
-      setFocusTip(newTip);
-      setPastTips(prev => [...prev.slice(-5), newTip]);
-    } catch (error) {
-      console.error('Error generating focus tip:', error);
-      toast({
-        title: 'AI Tip Generation Failed',
-        description: 'Could not generate a focus tip. Please try again later.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoadingTip(false);
-    }
-  };
 
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -282,35 +236,6 @@ export default function Home() {
                   <ThumbsDown className="mr-2 h-4 w-4" /> I got distracted
               </Button>
           </CardFooter>
-        </Card>
-        
-        <Card className="w-full shadow-lg">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Sparkles /> AI-Powered Focus Tips</CardTitle>
-            <CardDescription>Get personalized tips to help you stay sharp and productive.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="preferences">Your Preferences (optional)</Label>
-              <Textarea id="preferences" placeholder="e.g., 'I prefer short breaks', 'interested in mindfulness', 'struggle with digital distractions'" value={userPreferences} onChange={e => setUserPreferences(e.target.value)} />
-              <p className="text-xs text-muted-foreground mt-1">Tell the AI what you like for better tips.</p>
-            </div>
-            <Button onClick={handleGetFocusTip} disabled={isLoadingTip} className="w-full">
-              <Lightbulb className="mr-2 h-4 w-4" /> {isLoadingTip ? 'Generating...' : 'Get a New Tip'}
-            </Button>
-            {isLoadingTip && (
-              <div className="space-y-2 pt-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
-            )}
-            {focusTip && !isLoadingTip && (
-              <div className="p-4 bg-secondary rounded-lg border">
-                <p className="text-secondary-foreground animate-in fade-in-50">{focusTip}</p>
-              </div>
-            )}
-          </CardContent>
         </Card>
       </main>
     </div>
