@@ -38,6 +38,10 @@ export default function Home() {
                 body: 'Are you focusing?',
                 tag: 'focus-prompt',
                 silent: isSilent,
+                actions: [
+                    { action: 'focused', title: 'I was focused' },
+                    { action: 'distracted', title: 'I got distracted' },
+                ]
             });
             setStats(s => ({ ...s, prompts: s.prompts + 1 }));
             setIsAwaitingResponse(true);
@@ -50,13 +54,44 @@ export default function Home() {
     showNotificationRef.current = showNotification;
   }, [showNotification]);
 
+  const handleFocusResponse = useCallback((type: 'focused' | 'distracted') => {
+      if(type === 'focused') {
+        setStats(s => ({ ...s, focused: s.focused + 1 }));
+        toast({
+            title: "Great job!",
+            description: "Focus session logged.",
+        });
+      } else {
+        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
+        toast({
+            title: "It's okay!",
+            description: "Distraction logged. You can get back on track!",
+        });
+      }
+      setIsAwaitingResponse(false);
+  }, [toast]);
+  const handleFocusResponseRef = useRef(handleFocusResponse);
+  useEffect(() => {
+    handleFocusResponseRef.current = handleFocusResponse;
+  }, [handleFocusResponse]);
+
+
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
 
     const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'notification-closed') {
+        if (event.data?.type === 'notification-action') {
+            const action = event.data.action;
+            if(action === 'focused' || action === 'distracted') {
+                handleFocusResponseRef.current(action);
+            } else {
+                // User clicked notification body or an unknown action
+                setIsAwaitingResponse(false);
+            }
+        } else if (event.data?.type === 'notification-closed') {
+            // User dismissed the notification without interacting
             setIsAwaitingResponse(false);
         }
     };
@@ -138,21 +173,8 @@ export default function Home() {
     setIsTimerRunning(!isTimerRunning);
   };
   
-  const handleFocusResponse = (type: 'focused' | 'distracted') => {
-      if(type === 'focused') {
-        setStats(s => ({ ...s, focused: s.focused + 1 }));
-        toast({
-            title: "Great job!",
-            description: "Focus session logged.",
-        });
-      } else {
-        setStats(s => ({ ...s, distracted: s.distracted + 1 }));
-        toast({
-            title: "It's okay!",
-            description: "Distraction logged. You can get back on track!",
-        });
-      }
-      setIsAwaitingResponse(false);
+  const onPageFocusResponse = (type: 'focused' | 'distracted') => {
+      handleFocusResponse(type);
   }
 
   const handleGetFocusTip = async () => {
@@ -236,21 +258,21 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent/80 rounded-lg">
-                <p className="text-4xl font-bold text-accent-foreground">{stats.focused}</p>
-                <p className="text-sm text-accent-foreground/80">Times Focused</p>
+              <div className="p-4 bg-accent text-accent-foreground rounded-lg">
+                <p className="text-4xl font-bold">{stats.focused}</p>
+                <p className="text-sm font-medium">Times Focused</p>
               </div>
-              <div className="p-4 bg-destructive/80 rounded-lg">
-                <p className="text-4xl font-bold text-destructive-foreground">{stats.distracted}</p>
-                <p className="text-sm text-destructive-foreground/80">Times Distracted</p>
+              <div className="p-4 bg-destructive text-destructive-foreground rounded-lg">
+                <p className="text-4xl font-bold">{stats.distracted}</p>
+                <p className="text-sm font-medium">Times Distracted</p>
               </div>
             </div>
           </CardContent>
           <CardFooter className="flex justify-center gap-4 pt-4">
-              <Button variant="outline" onClick={() => handleFocusResponse('focused')} disabled={!isAwaitingResponse}>
+              <Button variant="outline" onClick={() => onPageFocusResponse('focused')} disabled={!isAwaitingResponse}>
                   <ThumbsUp className="mr-2 h-4 w-4" /> I was focused
               </Button>
-              <Button variant="outline" onClick={() => handleFocusResponse('distracted')} disabled={!isAwaitingResponse}>
+              <Button variant="outline" onClick={() => onPageFocusResponse('distracted')} disabled={!isAwaitingResponse}>
                   <ThumbsDown className="mr-2 h-4 w-4" /> I got distracted
               </Button>
           </CardFooter>
