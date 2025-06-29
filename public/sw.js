@@ -1,6 +1,6 @@
+// This is the service worker script, which executes in a separate background thread.
 
-'use strict';
-
+// Wait for the service worker to be installed and activated.
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting());
 });
@@ -9,43 +9,35 @@ self.addEventListener('activate', event => {
   event.waitUntil(self.clients.claim());
 });
 
+// Handle the 'message' event from the main page
 self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const options = {
-      body: 'Were you focused or did you get distracted?',
+  if (event.data?.type === 'SHOW_NOTIFICATION') {
+    self.registration.showNotification('Focus Check', {
+      body: 'Are you staying on task?',
       actions: [
         { action: 'focused', title: 'I was focused' },
         { action: 'distracted', title: 'I got distracted' },
       ],
-      tag: 'focus-prompt',
-      renotify: true,
-    };
-    event.waitUntil(self.registration.showNotification('Focus Check', options));
+    });
   }
 });
 
+// Handle notification clicks
 self.addEventListener('notificationclick', event => {
+  const action = event.action || 'closed';
   event.notification.close();
 
-  const action = event.action || 'closed';
-
+  // Find the client window and send a message
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // If a client window is open, focus it and send a message
       if (clientList.length > 0) {
         const client = clientList[0];
         client.postMessage({ type: 'notification-action', action });
         return client.focus();
       }
+      // If no client is open, open a new one
+      return self.clients.openWindow('/');
     })
   );
-});
-
-self.addEventListener('notificationclose', event => {
-    event.waitUntil(
-        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-            if (clientList.length > 0) {
-                clientList[0].postMessage({ type: 'notification-action', action: 'closed' });
-            }
-        })
-    );
 });

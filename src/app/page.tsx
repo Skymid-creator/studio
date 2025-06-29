@@ -37,58 +37,61 @@ export default function Home() {
   }, [toast]);
   
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
-      return;
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+        return;
     }
-    // Important: Wait for the service worker to be ready before posting a message.
+    
     navigator.serviceWorker.ready.then(registration => {
-      registration.active?.postMessage({ type: 'SHOW_NOTIFICATION' });
-      setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
-      setIsAwaitingResponse(true);
+        // Only show notification if the service worker is active and ready.
+        if (registration.active) {
+            registration.active.postMessage({ type: 'SHOW_NOTIFICATION' });
+            setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
+            setIsAwaitingResponse(true);
+        }
     });
   }, [notificationPermission]);
   
   useEffect(() => {
     if ('Notification' in window) {
-        setNotificationPermission(Notification.permission);
+      setNotificationPermission(Notification.permission);
     }
-
+  
     const registerServiceWorker = async () => {
-        if ('serviceWorker' in navigator) {
-            try {
-                const registration = await navigator.serviceWorker.register('/sw.js');
-                await registration.update(); // Check for updates.
-                
-                const handleMessage = (event: MessageEvent) => {
-                    if (event.data?.type === 'notification-action') {
-                        const { action } = event.data;
-                        if (action === 'focused' || action === 'distracted' || action === 'closed') {
-                          handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
-                        }
-                    }
-                };
-                
-                navigator.serviceWorker.addEventListener('message', handleMessage);
-                
-                return () => {
-                    navigator.serviceWorker.removeEventListener('message', handleMessage);
-                };
-
-            } catch (error) {
-                console.error('Service Worker registration failed:', error);
-                toast({
-                    title: 'App Error',
-                    description: 'Could not initialize a required component. Notifications may not work.',
-                    variant: 'destructive',
-                });
+      if ('serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.register('/sw.js');
+          // Ensure the service worker is updated and active.
+          await registration.update();
+          
+          const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'notification-action') {
+              const { action } = event.data;
+              if (action === 'focused' || action === 'distracted' || action === 'closed') {
+                handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
+              }
             }
+          };
+  
+          navigator.serviceWorker.addEventListener('message', handleMessage);
+  
+          return () => {
+            navigator.serviceWorker.removeEventListener('message', handleMessage);
+          };
+        } catch (error) {
+          console.error('Service Worker registration failed:', error);
+          toast({
+            title: 'App Error',
+            description: 'Could not initialize notifications.',
+            variant: 'destructive',
+          });
         }
+      }
     };
-
+  
     const cleanupPromise = registerServiceWorker();
-    
+  
     return () => {
-        cleanupPromise.then(cleanup => cleanup && cleanup());
+      cleanupPromise.then(cleanup => cleanup && cleanup());
     };
   }, [handleFocusResponse, toast]);
 
@@ -102,14 +105,12 @@ export default function Home() {
     };
 
     if (isTimerRunning) {
-      // Set initial time and start the timer immediately
       setTimeLeft(intervalMinutes * 60);
 
       timerId.current = setInterval(() => {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
             showNotification();
-            // Reset for the next interval
             return intervalMinutes * 60;
           }
           return prevTime - 1;
