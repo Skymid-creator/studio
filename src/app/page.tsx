@@ -46,27 +46,38 @@ export default function Home() {
       setIsAwaitingResponse(false);
   }, [toast]);
   
-  const showNotification = useCallback(() => {
+  const showNotification = useCallback(async () => {
     if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
       return;
     }
-    navigator.serviceWorker.getRegistration().then((reg) => {
-        if (reg) {
-            reg.showNotification('FocusPrompt', {
-                body: 'Are you focusing?',
-                tag: 'focus-prompt',
-                renotify: true,
-                silent: isSilent,
-                actions: [
-                    { action: 'focused', title: 'I was focused' },
-                    { action: 'distracted', title: 'I got distracted' },
-                ]
-            });
-            setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-            setIsAwaitingResponse(true);
-        }
-    });
-  }, [notificationPermission, isSilent]);
+
+    try {
+      // Use .ready to ensure the service worker is active and ready to handle actions.
+      // This is more robust and helps prevent race conditions, especially in Firefox.
+      const registration = await navigator.serviceWorker.ready;
+      
+      registration.showNotification('FocusPrompt', {
+        body: 'Are you focusing?',
+        tag: 'focus-prompt',
+        renotify: true,
+        silent: isSilent,
+        actions: [
+          { action: 'focused', title: 'I was focused' },
+          { action: 'distracted', title: 'I got distracted' },
+        ]
+      });
+
+      setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+      setIsAwaitingResponse(true);
+    } catch (err) {
+      console.error('Error showing notification:', err);
+      toast({
+        title: 'Could not show notification',
+        description: 'There was an issue with the notification service.',
+        variant: 'destructive'
+      });
+    }
+  }, [notificationPermission, isSilent, toast]);
   
   useEffect(() => {
     if ('Notification' in window) {
@@ -253,11 +264,11 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-green-500 text-white rounded-lg">
+              <div className="p-4 bg-green-500/20 text-green-800 dark:bg-green-500/10 dark:text-green-400 rounded-lg border border-green-500/30">
                 <p className="text-4xl font-bold">{stats.focused}</p>
                 <p className="text-sm font-medium">Times Focused</p>
               </div>
-              <div className="p-4 bg-red-500 text-white rounded-lg">
+              <div className="p-4 bg-red-500/20 text-red-800 dark:bg-red-500/10 dark:text-red-400 rounded-lg border border-red-500/30">
                 <p className="text-4xl font-bold">{stats.distracted}</p>
                 <p className="text-sm font-medium">Times Distracted</p>
               </div>
