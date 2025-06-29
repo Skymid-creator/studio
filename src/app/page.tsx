@@ -50,17 +50,15 @@ export default function Home() {
     if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
       return;
     }
+
     navigator.serviceWorker.ready.then((registration) => {
-      if(registration.active) {
-        registration.active.postMessage({
-          type: 'SHOW_NOTIFICATION',
-          silent: isSilent,
-        });
-        setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
-        setIsAwaitingResponse(true);
-      }
+        if (registration.active) {
+            registration.active.postMessage({ type: 'SHOW_NOTIFICATION' });
+            setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
+            setIsAwaitingResponse(true);
+        }
     });
-  }, [notificationPermission, isSilent]);
+  }, [notificationPermission]);
   
   useEffect(() => {
     if ('Notification' in window) {
@@ -76,17 +74,23 @@ export default function Home() {
       }
     };
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(error => {
-        console.error('Service Worker registration failed:', error);
-        toast({
-          title: 'App Error',
-          description: 'Could not initialize a required component. Notifications may not work.',
-          variant: 'destructive',
-        });
-      });
-      navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
+    const registerServiceWorker = async () => {
+      if ('serviceWorker' in navigator) {
+        try {
+          await navigator.serviceWorker.register('/sw.js');
+          navigator.serviceWorker.addEventListener('message', handleMessage);
+        } catch (error) {
+          console.error('Service Worker registration failed:', error);
+          toast({
+            title: 'App Error',
+            description: 'Could not initialize a required component. Notifications may not work.',
+            variant: 'destructive',
+          });
+        }
+      }
+    };
+
+    registerServiceWorker();
 
     return () => {
       if ('serviceWorker' in navigator) {
