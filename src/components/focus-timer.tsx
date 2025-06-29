@@ -20,6 +20,7 @@ export default function FocusTimer() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
+  // Use refs to hold the latest state and functions to avoid stale closures in intervals
   const intervalRef = useRef(intervalMinutes);
   useEffect(() => { intervalRef.current = intervalMinutes }, [intervalMinutes]);
 
@@ -37,16 +38,19 @@ export default function FocusTimer() {
       // No need to handle 'closed' as the timer loop is now independent
   }, [toast]);
 
+  // Assign the latest handler to the ref
   useEffect(() => {
     focusResponseHandlerRef.current = handleFocusResponse;
   }, [handleFocusResponse]);
 
+  // Effect for Service Worker registration and message handling
   useEffect(() => {
     if (!('serviceWorker' in navigator && 'Notification' in window)) {
         toast({ title: 'Unsupported', description: 'Service Worker or Notifications not supported in this browser.', variant: 'destructive'});
         return;
     }
 
+    // This function is now outside the effect's async callback
     const registerServiceWorker = async () => {
       try {
         await navigator.serviceWorker.register('/sw.js');
@@ -55,6 +59,8 @@ export default function FocusTimer() {
         toast({ title: 'Service Worker Failed', description: 'Could not register the service worker.', variant: 'destructive'});
       }
     };
+
+    // Call the registration function
     registerServiceWorker();
 
     setNotificationPermission(Notification.permission);
@@ -70,27 +76,42 @@ export default function FocusTimer() {
     
     navigator.serviceWorker.addEventListener('message', handleMessage);
 
+    // The cleanup function is now in the main body of the effect
     return () => {
         navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
   }, [toast]);
 
+  // Effect for creating the notification
   const showNotification = useCallback(() => {
     if (notificationPermission !== 'granted' || !navigator.serviceWorker.ready) {
       return;
     }
     
+    // We send a message to the service worker to show the notification
     navigator.serviceWorker.ready.then(registration => {
-      registration.active?.postMessage({ type: 'show-notification', options: { silent: isSilent } });
+      // The new service worker doesn't need to be pushed to, it listens for messages
+      registration.active?.postMessage({
+        type: 'show-notification',
+        options: {
+          title: 'Focus Check!',
+          body: 'Are you still on task?',
+          silent: isSilent,
+        }
+      });
       setStats(s => ({ ...s, prompts: s.prompts + 1 }));
     });
   }, [notificationPermission, isSilent]);
   
+  // Assign the latest showNotification function to its ref
   useEffect(() => {
     showNotificationRef.current = showNotification;
   }, [showNotification]);
 
+
+  // Main timer loop effect
   useEffect(() => {
+    // Clear any existing timer when isTimerRunning changes
     if (timerId.current) {
         clearInterval(timerId.current);
         timerId.current = null;
@@ -100,10 +121,12 @@ export default function FocusTimer() {
       const initialTime = intervalRef.current * 60;
       setTimeLeft(initialTime);
 
+      // Start a new timer
       timerId.current = setInterval(() => {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
             showNotificationRef.current();
+            // Reset timer for the next interval
             return intervalRef.current * 60;
           }
           return prevTime - 1;
@@ -113,13 +136,14 @@ export default function FocusTimer() {
       setTimeLeft(0);
     }
   
+    // Cleanup function to clear the interval when the component unmounts or isTimerRunning becomes false
     return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
         timerId.current = null;
       }
     };
-  }, [isTimerRunning]);
+  }, [isTimerRunning]); // This effect ONLY re-runs when isTimerRunning changes
 
 
   const handleRequestPermission = useCallback(() => {
