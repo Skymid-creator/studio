@@ -23,6 +23,7 @@ export default function Home() {
   const [pastTips, setPastTips] = useState<string[]>([]);
   const [focusTip, setFocusTip] = useState<string>('');
   const [isLoadingTip, setIsLoadingTip] = useState<boolean>(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState<boolean>(false);
 
   const { toast } = useToast();
 
@@ -30,27 +31,78 @@ export default function Home() {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
-  }, []);
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'notification-action') {
+        setIsAwaitingResponse(false);
+        if (event.data.action === 'focused') {
+          setStats(s => ({ ...s, focused: s.focused + 1 }));
+          toast({
+            title: "Great job!",
+            description: "Focus session logged.",
+          });
+        } else if (event.data.action === 'distracted') {
+          setStats(s => ({ ...s, distracted: s.distracted + 1 }));
+          toast({
+            title: "It's okay!",
+            description: "Distraction logged. You can get back on track!",
+          });
+        }
+      } else if (event.data?.type === 'notification-closed') {
+        setIsAwaitingResponse(false);
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => console.log('Service Worker registered.'))
+        .catch(error => console.log('Service Worker registration failed: ', error));
+
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
+    };
+  }, [toast]);
 
   const showNotification = useCallback(() => {
     if (notificationPermission !== 'granted') return;
 
-    const notification = new Notification('FocusPrompt', {
-      body: 'Are you focusing?',
-      silent: isSilent,
-    });
-
-    notification.onclick = () => {
-      window.focus();
-    };
+    if (!('serviceWorker' in navigator)) {
+      const notification = new Notification('FocusPrompt', {
+        body: 'Are you focusing?',
+        silent: isSilent,
+      });
+      notification.onclick = () => {
+        window.focus();
+      };
+    } else {
+      navigator.serviceWorker.ready.then(registration => {
+        registration.showNotification('FocusPrompt', {
+          body: 'Are you focusing?',
+          silent: isSilent,
+          actions: [
+            { action: 'focused', title: 'I was focused' },
+            { action: 'distracted', title: 'I got distracted' }
+          ]
+        });
+      });
+    }
 
     setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
   }, [notificationPermission, isSilent]);
 
   useEffect(() => {
     if (!isTimerRunning) {
+      setTimeLeft(0);
       return;
     }
+
+    setTimeLeft(intervalMinutes * 60);
 
     const timer = setInterval(() => {
       setTimeLeft((prevTime) => {
@@ -95,11 +147,6 @@ export default function Home() {
     if (notificationPermission !== 'granted') {
       handleRequestPermission();
       return;
-    }
-    if (!isTimerRunning) {
-      setTimeLeft(intervalMinutes * 60);
-    } else {
-      setTimeLeft(0);
     }
     setIsTimerRunning(!isTimerRunning);
   };
@@ -196,10 +243,10 @@ export default function Home() {
             </div>
           </CardContent>
           <CardFooter className="flex justify-center gap-4 pt-4">
-              <Button variant="outline" onClick={() => setStats(s => ({...s, focused: s.focused + 1}))}>
+              <Button variant="outline" onClick={() => setStats(s => ({...s, focused: s.focused + 1}))} disabled={isAwaitingResponse}>
                   <ThumbsUp className="mr-2 h-4 w-4" /> I was focused
               </Button>
-              <Button variant="outline" onClick={() => setStats(s => ({...s, distracted: s.distracted + 1}))}>
+              <Button variant="outline" onClick={() => setStats(s => ({...s, distracted: s.distracted + 1}))} disabled={isAwaitingResponse}>
                   <ThumbsDown className="mr-2 h-4 w-4" /> I got distracted
               </Button>
           </CardFooter>
