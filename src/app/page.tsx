@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,7 @@ export default function Home() {
   const [isAwaitingResponse, setIsAwaitingResponse] = useState<boolean>(false);
 
   const { toast } = useToast();
+  const timerId = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -71,18 +72,12 @@ export default function Home() {
   const showNotification = useCallback(() => {
     if (notificationPermission !== 'granted') return;
 
-    if (!('serviceWorker' in navigator)) {
-      const notification = new Notification('FocusPrompt', {
-        body: 'Are you focusing?',
-        silent: isSilent,
-      });
-      notification.onclick = () => {
-        window.focus();
-      };
-    } else {
-      navigator.serviceWorker.ready.then(registration => {
+    const showNotificationWithActions = () => {
+       if (!('serviceWorker' in navigator)) return;
+       navigator.serviceWorker.ready.then(registration => {
         registration.showNotification('FocusPrompt', {
           body: 'Are you focusing?',
+          tag: 'focus-prompt',
           silent: isSilent,
           actions: [
             { action: 'focused', title: 'I was focused' },
@@ -92,29 +87,37 @@ export default function Home() {
       });
     }
 
+    showNotificationWithActions();
     setStats(s => ({ ...s, prompts: s.prompts + 1 }));
     setIsAwaitingResponse(true);
   }, [notificationPermission, isSilent]);
 
   useEffect(() => {
-    if (!isTimerRunning) {
-      setTimeLeft(0);
-      return;
+    if (timerId.current) {
+      clearInterval(timerId.current);
     }
 
-    setTimeLeft(intervalMinutes * 60);
+    if (isTimerRunning) {
+      setTimeLeft(intervalMinutes * 60);
 
-    const timer = setInterval(() => {
-      setTimeLeft((prevTime) => {
-        if (prevTime <= 1) {
-          showNotification();
-          return intervalMinutes * 60;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
+      timerId.current = setInterval(() => {
+        setTimeLeft(prevTime => {
+          if (prevTime <= 1) {
+            showNotification();
+            return intervalMinutes * 60;
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } else {
+      setTimeLeft(0);
+    }
 
-    return () => clearInterval(timer);
+    return () => {
+      if (timerId.current) {
+        clearInterval(timerId.current);
+      }
+    };
   }, [isTimerRunning, intervalMinutes, showNotification]);
 
   const handleRequestPermission = () => {
@@ -232,8 +235,8 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent-foreground rounded-lg">
-                <p className="text-4xl font-bold text-accent">{stats.focused}</p>
+              <div className="p-4 bg-accent rounded-lg">
+                <p className="text-4xl font-bold text-accent-foreground">{stats.focused}</p>
                 <p className="text-sm text-muted-foreground">Times Focused</p>
               </div>
               <div className="p-4 bg-destructive rounded-lg">

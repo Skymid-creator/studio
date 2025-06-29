@@ -1,46 +1,38 @@
-self.addEventListener('notificationclick', function(event) {
-  const clickedNotification = event.notification;
-  clickedNotification.close();
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
 
   const action = event.action;
-
-  // Attempt to focus the client window.
-  event.waitUntil(
-    clients.matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    }).then(function(clientList) {
-      for (const client of clientList) {
-        if ('focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow('/');
-      }
-    })
-  );
-
-  if (action) {
-    // Send a message to the client.
-    self.clients.matchAll({
-      type: "window",
-      includeUncontrolled: true
-    }).then(function(clientList) {
-      for (const client of clientList) {
-        client.postMessage({
-          type: 'notification-action',
-          action: action
+  
+  if (action === 'focused' || action === 'distracted') {
+    // Send a message to the client(s)
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      if (clients && clients.length) {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'notification-action',
+            action: action,
+          });
         });
+      }
+    });
+  } else {
+    // If no action, or a different action, just focus the client
+     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      if (clients && clients.length) {
+        clients[0].focus();
       }
     });
   }
 });
 
-self.addEventListener('notificationclose', function(event) {
-  self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function(clientList) {
-    clientList.forEach(client => {
-      client.postMessage({ type: 'notification-closed' });
+self.addEventListener('notificationclose', event => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      if (clients && clients.length) {
+        clients.forEach(client => {
+          client.postMessage({
+            type: 'notification-closed',
+          });
+        });
+      }
     });
-  });
 });
