@@ -6,18 +6,34 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('notificationclick', (event) => {
-  const action = event.action;
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SHOW_NOTIFICATION') {
+    const { options } = event.data;
+    event.waitUntil(self.registration.showNotification('FocusPrompt', options));
+  }
+});
 
+const postActionToClient = (client, action) => {
+  client.postMessage({ type: 'notification-action', action });
+};
+
+self.addEventListener('notificationclick', (event) => {
+  const { action } = event; // 'focused', 'distracted', or '' if body is clicked
   event.notification.close();
 
+  const actionToPost = (action === 'focused' || action === 'distracted') ? action : 'closed';
+  
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      const client = clientList.find(c => c.visibilityState === 'visible') || clientList[0];
-      
-      if (client) {
-        client.postMessage({ type: 'notification-action', action });
-        client.focus();
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.visibilityState === 'visible') {
+          postActionToClient(client, actionToPost);
+          return client.focus();
+        }
+      }
+      if (clientList.length > 0) {
+        postActionToClient(clientList[0], actionToPost);
+        return clientList[0].focus();
       }
     })
   );
@@ -25,20 +41,16 @@ self.addEventListener('notificationclick', (event) => {
 
 self.addEventListener('notificationclose', (event) => {
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      const client = clientList.find(c => c.visibilityState === 'visible') || clientList[0];
-      if (client) {
-        client.postMessage({ type: 'notification-action', action: 'closed' });
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.visibilityState === 'visible') {
+          postActionToClient(client, 'closed');
+          return;
+        }
+      }
+      if (clientList.length > 0) {
+         postActionToClient(clientList[0], 'closed');
       }
     })
   );
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const { options } = event.data;
-    event.waitUntil(
-      self.registration.showNotification('FocusPrompt', options)
-    );
-  }
 });

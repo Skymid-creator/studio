@@ -14,7 +14,7 @@ import { generateFocusTip } from '@/ai/flows/generate-focus-tip';
 import { Bell, Play, Pause, BarChart2, Lightbulb, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
 
 export default function Home() {
-  const [intervalMinutes, setIntervalMinutes] = useState<number>(2);
+  const [intervalMinutes, setIntervalMinutes] = useState<number>(1);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [notificationPermission, setNotificationPermission] = useState<string>('default');
@@ -45,58 +45,45 @@ export default function Home() {
       }
       setIsAwaitingResponse(false);
   }, [toast]);
-  
+
   const showNotification = useCallback(async () => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+    if (notificationPermission !== 'granted') return;
+
+    const registration = await navigator.serviceWorker.ready;
+    if (!registration.active) {
+      console.error('Service worker not active');
+      toast({
+        title: 'Notification Error',
+        description: 'The notification service is not available.',
+        variant: 'destructive'
+      });
       return;
     }
     
-    try {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            options: {
-                body: 'Are you focusing?',
-                tag: 'focus-prompt',
-                renotify: true,
-                silent: isSilent,
-                actions: [
-                  { action: 'focused', title: 'I was focused' },
-                  { action: 'distracted', title: 'I got distracted' },
-                ]
-            }
-        });
+    registration.active.postMessage({
+        type: 'SHOW_NOTIFICATION',
+        options: {
+            body: 'Are you focusing?',
+            tag: 'focus-prompt',
+            renotify: true,
+            silent: isSilent,
+            actions: [
+              { action: 'focused', title: 'I was focused' },
+              { action: 'distracted', title: 'I got distracted' },
+            ]
+        }
+    });
         
-        setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-        setIsAwaitingResponse(true);
+    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
 
-    } catch (err) {
-      console.error('Error showing notification:', err);
-      toast({
-        title: 'Could not show notification',
-        description: 'There was an issue with the notification service.',
-        variant: 'destructive'
-      });
-    }
   }, [notificationPermission, isSilent, toast]);
   
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
-  
-    const registerServiceWorker = async () => {
-      if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('/sw.js');
-          console.log('Service Worker registered');
-        } catch (error) {
-          console.log('Service Worker registration failed:', error);
-        }
-      }
-    };
-  
-    registerServiceWorker();
-  
+    
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'notification-action') {
         const { action } = event.data;
@@ -105,13 +92,25 @@ export default function Home() {
         }
       }
     };
-  
-    navigator.serviceWorker.addEventListener('message', handleMessage);
-  
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(error => {
+        console.error('Service Worker registration failed:', error);
+        toast({
+          title: 'App Error',
+          description: 'Could not initialize a required component. Notifications may not work.',
+          variant: 'destructive',
+        });
+      });
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+
     return () => {
-      navigator.serviceWorker.removeEventListener('message', handleMessage);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
     };
-  }, [handleFocusResponse]);
+  }, [handleFocusResponse, toast]);
 
 
   useEffect(() => {
