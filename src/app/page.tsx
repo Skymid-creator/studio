@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { Bell, Play, Pause, BarChart2, Lightbulb, ThumbsUp, ThumbsDown, Sparkles
 export default function Home() {
   const [intervalMinutes, setIntervalMinutes] = useState<number>(2);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [isSilent, setIsSilent] = useState<boolean>(false);
   const [stats, setStats] = useState({ prompts: 0, focused: 0, distracted: 0 });
@@ -23,7 +24,6 @@ export default function Home() {
   const [focusTip, setFocusTip] = useState<string>('');
   const [isLoadingTip, setIsLoadingTip] = useState<boolean>(false);
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -48,18 +48,24 @@ export default function Home() {
   }, [notificationPermission, isSilent]);
 
   useEffect(() => {
-    if (isTimerRunning && intervalMinutes > 0) {
-      intervalRef.current = setInterval(showNotification, intervalMinutes * 60 * 1000);
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+    if (!isTimerRunning) {
+      setTimeLeft(0);
+      return;
     }
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
+
+    setTimeLeft(intervalMinutes * 60);
+
+    const timer = setInterval(() => {
+      setTimeLeft((prevTime) => {
+        if (prevTime <= 1) {
+          showNotification();
+          return intervalMinutes * 60;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, [isTimerRunning, intervalMinutes, showNotification]);
 
   const handleRequestPermission = () => {
@@ -119,6 +125,12 @@ export default function Home() {
     }
   };
 
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+  };
+
   return (
     <div className="flex flex-col items-center min-h-screen bg-background p-4 sm:p-6 md:p-8">
       <main className="w-full max-w-2xl mx-auto space-y-8">
@@ -149,6 +161,12 @@ export default function Home() {
                         {isTimerRunning ? <><Pause className="mr-2 h-4 w-4" /> Stop</> : <><Play className="mr-2 h-4 w-4" /> Start</>}
                     </Button>
                 </div>
+                {isTimerRunning && (
+                  <div className="text-center pt-4 transition-opacity duration-300 animate-in fade-in">
+                    <p className="text-sm text-muted-foreground">Next prompt in:</p>
+                    <p className="text-4xl font-bold font-mono tracking-wider text-primary">{formatTime(timeLeft)}</p>
+                  </div>
+                )}
                 <div className="flex items-center space-x-2 pt-2">
                     <Switch id="silent-mode" checked={isSilent} onCheckedChange={setIsSilent} aria-label="Silent notifications" />
                     <Label htmlFor="silent-mode">Silent notifications</Label>
