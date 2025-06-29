@@ -232,12 +232,12 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent/20 rounded-lg">
-                <p className="text-4xl font-bold text-accent-foreground/80">{stats.focused}</p>
+              <div className="p-4 bg-accent-foreground rounded-lg">
+                <p className="text-4xl font-bold text-accent">{stats.focused}</p>
                 <p className="text-sm text-muted-foreground">Times Focused</p>
               </div>
-              <div className="p-4 bg-destructive/10 rounded-lg">
-                <p className="text-4xl font-bold text-destructive/80">{stats.distracted}</p>
+              <div className="p-4 bg-destructive rounded-lg">
+                <p className="text-4xl font-bold text-destructive-foreground">{stats.distracted}</p>
                 <p className="text-sm text-muted-foreground">Times Distracted</p>
               </div>
             </div>
