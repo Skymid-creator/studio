@@ -56,8 +56,8 @@ export default function Home() {
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
-        .then(registration => console.log('Service Worker registered.'))
-        .catch(error => console.log('Service Worker registration failed: ', error));
+        .then(registration => console.log('Service Worker registered with scope:', registration.scope))
+        .catch(error => console.log('Service Worker registration failed:', error));
 
       navigator.serviceWorker.addEventListener('message', handleMessage);
     }
@@ -70,55 +70,64 @@ export default function Home() {
   }, [toast]);
 
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted') return;
-
-    const showNotificationWithActions = () => {
-       if (!('serviceWorker' in navigator)) return;
-       navigator.serviceWorker.ready.then(registration => {
-        registration.showNotification('FocusPrompt', {
-          body: 'Are you focusing?',
-          tag: 'focus-prompt',
-          silent: isSilent,
-          actions: [
-            { action: 'focused', title: 'I was focused' },
-            { action: 'distracted', title: 'I got distracted' }
-          ]
-        });
-      });
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+      return;
     }
 
-    showNotificationWithActions();
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification('FocusPrompt', {
+        body: 'Are you focusing?',
+        tag: 'focus-prompt',
+        silent: isSilent,
+        actions: [
+          { action: 'focused', title: 'I was focused' },
+          { action: 'distracted', title: 'I got distracted' }
+        ]
+      });
+    });
+    
     setStats(s => ({ ...s, prompts: s.prompts + 1 }));
     setIsAwaitingResponse(true);
   }, [notificationPermission, isSilent]);
-
+  
+  const showNotificationRef = useRef(showNotification);
   useEffect(() => {
+    showNotificationRef.current = showNotification;
+  }, [showNotification]);
+
+  const stopTimer = useCallback(() => {
     if (timerId.current) {
       clearInterval(timerId.current);
+      timerId.current = null;
     }
+  }, []);
 
+  const startTimer = useCallback(() => {
+    stopTimer();
+    setTimeLeft(intervalMinutes * 60);
+
+    timerId.current = setInterval(() => {
+      setTimeLeft(prevTime => {
+        if (prevTime <= 1) {
+          showNotificationRef.current();
+          return intervalMinutes * 60;
+        }
+        return prevTime - 1;
+      });
+    }, 1000);
+  }, [intervalMinutes, stopTimer]);
+
+
+  useEffect(() => {
     if (isTimerRunning) {
-      setTimeLeft(intervalMinutes * 60);
-
-      timerId.current = setInterval(() => {
-        setTimeLeft(prevTime => {
-          if (prevTime <= 1) {
-            showNotification();
-            return intervalMinutes * 60;
-          }
-          return prevTime - 1;
-        });
-      }, 1000);
+      startTimer();
     } else {
+      stopTimer();
       setTimeLeft(0);
     }
 
-    return () => {
-      if (timerId.current) {
-        clearInterval(timerId.current);
-      }
-    };
-  }, [isTimerRunning, intervalMinutes, showNotification]);
+    return stopTimer;
+  }, [isTimerRunning, startTimer, stopTimer]);
 
   const handleRequestPermission = () => {
     if (!('Notification' in window)) {
@@ -237,11 +246,11 @@ export default function Home() {
             <div className="grid grid-cols-2 gap-4 text-center">
               <div className="p-4 bg-accent rounded-lg">
                 <p className="text-4xl font-bold text-accent-foreground">{stats.focused}</p>
-                <p className="text-sm text-muted-foreground">Times Focused</p>
+                <p className="text-sm text-accent-foreground/80">Times Focused</p>
               </div>
               <div className="p-4 bg-destructive rounded-lg">
                 <p className="text-4xl font-bold text-destructive-foreground">{stats.distracted}</p>
-                <p className="text-sm text-muted-foreground">Times Distracted</p>
+                <p className="text-sm text-destructive-foreground/80">Times Distracted</p>
               </div>
             </div>
           </CardContent>
