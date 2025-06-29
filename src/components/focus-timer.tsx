@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -21,33 +22,15 @@ export default function FocusTimer() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
-  const handleRequestPermission = useCallback(() => {
-    if (!('Notification' in window)) {
-      toast({
-        title: 'Error',
-        description: 'This browser does not support desktop notifications.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    Notification.requestPermission().then(permission => {
-      setNotificationPermission(permission);
-      if (permission === 'granted') {
-        toast({
-          title: 'Success!',
-          description: 'You will now receive focus notifications.',
-        });
-      } else if (permission === 'denied') {
-        toast({
-          title: 'Permission Denied',
-          description: 'You have denied notification permissions. Please enable them in your browser settings.',
-          variant: 'destructive',
-        });
-      }
-    });
-  }, [toast]);
-  
+  // Using refs for callbacks and state values that are used inside setInterval
+  // This prevents the useEffect that manages the timer from re-running unnecessarily
+  const intervalRef = useRef(intervalMinutes);
+  useEffect(() => { intervalRef.current = intervalMinutes }, [intervalMinutes]);
+
+  const showNotificationRef = useRef(() => {});
+
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
+      setIsAwaitingResponse(false); // Always reset awaiting state
       if (type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
         toast({
@@ -61,50 +44,36 @@ export default function FocusTimer() {
             description: "Distraction logged. You can get back on track!",
         });
       }
-      setIsAwaitingResponse(false);
+      // 'closed' action does not show a toast, just resets the UI.
   }, [toast]);
-  
-  // Using a ref to hold the handler ensures the latest version is always available in listeners without re-binding.
+
   const focusResponseHandlerRef = useRef(handleFocusResponse);
   useEffect(() => {
     focusResponseHandlerRef.current = handleFocusResponse;
   }, [handleFocusResponse]);
 
-  const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted') {
-      console.warn("Notification permission not granted.");
-      if (notificationPermission === 'default') handleRequestPermission();
-      return;
-    }
-    
-    // Using .ready ensures the service worker is active and ready to receive messages.
-    navigator.serviceWorker.ready.then(registration => {
-      if (!registration.active) {
-        console.warn("Service worker is not active.");
-        return;
-      }
-      registration.active.postMessage({ type: 'show-notification', options: { silent: isSilent } });
-      setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-      setIsAwaitingResponse(true);
-    }).catch(error => {
-      console.error("Service worker ready error:", error);
-    });
-  }, [notificationPermission, isSilent, handleRequestPermission]);
 
-  // Use refs to pass stable values to the timer's interval callback.
-  const showNotificationRef = useRef(showNotification);
-  useEffect(() => { showNotificationRef.current = showNotification }, [showNotification]);
-  
-  const intervalRef = useRef(intervalMinutes);
-  useEffect(() => { intervalRef.current = intervalMinutes }, [intervalMinutes]);
-
-  // This useEffect correctly sets up and tears down the service worker listener once.
+  // This effect runs only once to set up the service worker and its message listener.
+  // This is critical to prevent accumulating listeners.
   useEffect(() => {
     if (!('serviceWorker' in navigator && 'Notification' in window)) {
-        console.log('Service Worker or Notifications not supported.');
+        toast({ title: 'Unsupported', description: 'Service Worker or Notifications not supported in this browser.', variant: 'destructive'});
         return;
     }
 
+    const registerServiceWorker = async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        console.log('Service Worker registered with scope:', registration.scope);
+      } catch (error) {
+        console.error('Service Worker registration failed:', error);
+        toast({ title: 'Service Worker Failed', description: 'Could not register the service worker.', variant: 'destructive'});
+      }
+    };
+    registerServiceWorker();
+
+    setNotificationPermission(Notification.permission);
+    
     const handleMessage = (event: MessageEvent) => {
         if (event.data?.type === 'notification-action') {
             const { action } = event.data;
@@ -116,52 +85,93 @@ export default function FocusTimer() {
     
     navigator.serviceWorker.addEventListener('message', handleMessage);
 
-    navigator.serviceWorker.register('/sw.js')
-        .then(registration => console.log('Service Worker registered with scope:', registration.scope))
-        .catch(error => console.error('Service Worker registration failed:', error));
-
-    setNotificationPermission(Notification.permission);
-
     // The cleanup function is critical and will now be called correctly.
     return () => {
         navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
-  }, []);
+  }, [toast]); // Depends on toast to satisfy the linter, but it's stable.
 
-  // This useEffect correctly manages the timer, only re-running when the timer is started or stopped.
-  useEffect(() => {
-    if (timerId.current) {
-      clearInterval(timerId.current);
-    }
 
-    if (!isTimerRunning) {
-      setTimeLeft(0);
+  const showNotification = useCallback(() => {
+    if (notificationPermission !== 'granted') {
+      console.warn("Notification permission not granted.");
       return;
     }
+    
+    navigator.serviceWorker.ready.then(registration => {
+      if (!registration.active) {
+        console.warn("Service worker is not active.");
+        return;
+      }
+      registration.active.postMessage({ type: 'show-notification', options: { silent: isSilent } });
+      setStats(s => ({ ...s, prompts: s.prompts + 1 }));
+      setIsAwaitingResponse(true);
+    }).catch(error => {
+      console.error("Service worker ready error:", error);
+    });
+  }, [notificationPermission, isSilent]);
   
-    setTimeLeft(intervalRef.current * 60);
-  
-    timerId.current = setInterval(() => {
-      setTimeLeft(prevTime => {
-        if (prevTime <= 1) {
-          showNotificationRef.current();
-          return intervalRef.current * 60;
-        }
-        return prevTime - 1;
-      });
-    }, 1000);
-  
-    return () => {
+  showNotificationRef.current = showNotification;
+
+  // This effect manages the timer. It ONLY depends on `isTimerRunning`.
+  // This is the key to fixing the multiple timer bug.
+  useEffect(() => {
+    if (isTimerRunning) {
+      // Start timer
+      const initialTime = intervalRef.current * 60;
+      setTimeLeft(initialTime);
+
+      timerId.current = setInterval(() => {
+        setTimeLeft(prevTime => {
+          if (prevTime <= 1) {
+            showNotificationRef.current();
+            return intervalRef.current * 60; // Reset for next interval
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } else {
+      // Stop timer
       if (timerId.current) {
         clearInterval(timerId.current);
         timerId.current = null;
       }
+      setTimeLeft(0);
+    }
+  
+    // Cleanup on unmount or when isTimerRunning changes
+    return () => {
+      if (timerId.current) {
+        clearInterval(timerId.current);
+      }
     };
   }, [isTimerRunning]);
+
+
+  const handleRequestPermission = useCallback(() => {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(permission => {
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        toast({
+          title: 'Success!',
+          description: 'You will now receive focus notifications.',
+        });
+      } else if (permission === 'denied') {
+        toast({
+          title: 'Permission Denied',
+          description: 'You must enable notifications in browser settings.',
+          variant: 'destructive',
+        });
+      }
+    });
+  }, [toast]);
 
   const handleStartStopTimer = () => {
     if (notificationPermission !== 'granted') {
       handleRequestPermission();
+      // Do not start the timer if permission is not granted.
+      // The user must click start again after granting permission.
       return;
     }
     setIsTimerRunning(prev => !prev);
