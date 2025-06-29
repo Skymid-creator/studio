@@ -46,38 +46,21 @@ export default function Home() {
       setIsAwaitingResponse(false);
   }, [toast]);
 
-  const showNotification = useCallback(async () => {
-    if (notificationPermission !== 'granted') return;
-
-    const registration = await navigator.serviceWorker.ready;
-    if (!registration.active) {
-      console.error('Service worker not active');
-      toast({
-        title: 'Notification Error',
-        description: 'The notification service is not available.',
-        variant: 'destructive'
-      });
+  const showNotification = useCallback(() => {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
       return;
     }
-    
-    registration.active.postMessage({
-        type: 'SHOW_NOTIFICATION',
-        options: {
-            body: 'Are you focusing?',
-            tag: 'focus-prompt',
-            renotify: true,
-            silent: isSilent,
-            actions: [
-              { action: 'focused', title: 'I was focused' },
-              { action: 'distracted', title: 'I got distracted' },
-            ]
-        }
+    navigator.serviceWorker.ready.then((registration) => {
+      if(registration.active) {
+        registration.active.postMessage({
+          type: 'SHOW_NOTIFICATION',
+          silent: isSilent,
+        });
+        setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
+        setIsAwaitingResponse(true);
+      }
     });
-        
-    setStats(s => ({ ...s, prompts: s.prompts + 1 }));
-    setIsAwaitingResponse(true);
-
-  }, [notificationPermission, isSilent, toast]);
+  }, [notificationPermission, isSilent]);
   
   useEffect(() => {
     if ('Notification' in window) {
@@ -88,7 +71,7 @@ export default function Home() {
       if (event.data?.type === 'notification-action') {
         const { action } = event.data;
         if (action === 'focused' || action === 'distracted' || action === 'closed') {
-          handleFocusResponse(action);
+          handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
         }
       }
     };
