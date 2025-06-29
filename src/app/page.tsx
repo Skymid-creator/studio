@@ -21,9 +21,11 @@ export default function Home() {
   
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
+  // Use refs to hold the latest values of state and functions
+  // to avoid issues with stale closures in intervals.
   const latestIntervalMinutes = useRef(intervalMinutes);
   latestIntervalMinutes.current = intervalMinutes;
-
+  
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
       if(type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
@@ -49,15 +51,22 @@ export default function Home() {
     if (!('serviceWorker' in navigator)) {
       return;
     }
-    
+
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification('Are you focusing?', {
+        body: 'Click one of the buttons to log your status.',
+        actions: [
+          { action: 'focused', title: 'I was focused' },
+          { action: 'distracted', title: 'I got distracted' },
+        ],
+        tag: 'focus-prompt',
+        renotify: true,
+      });
+    });
+
     setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
     setIsAwaitingResponse(true);
 
-    navigator.serviceWorker.ready.then(registration => {
-      registration.active?.postMessage({
-        type: 'show-notification',
-      });
-    });
   }, [notificationPermission]);
 
   const latestShowNotification = useRef(showNotification);
@@ -71,7 +80,7 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          await navigator.serviceWorker.register('/sw.js');
+          const registration = await navigator.serviceWorker.register('/sw.js');
           
           const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification-action') {
@@ -103,6 +112,7 @@ export default function Home() {
   }, [handleFocusResponse, toast]);
 
   useEffect(() => {
+    // If the timer is not running, clear any existing interval and reset time.
     if (!isTimerRunning) {
       if (timerId.current) {
         clearInterval(timerId.current);
@@ -112,18 +122,23 @@ export default function Home() {
       return;
     }
 
+    // Set the initial time left when the timer starts.
     setTimeLeft(latestIntervalMinutes.current * 60);
 
+    // Start the countdown interval.
     timerId.current = setInterval(() => {
       setTimeLeft(prevTime => {
+        // When the timer reaches zero, show notification and reset.
         if (prevTime <= 1) {
           latestShowNotification.current();
           return latestIntervalMinutes.current * 60; 
         }
+        // Otherwise, just decrement the time.
         return prevTime - 1;
       });
     }, 1000);
 
+    // Cleanup function to clear the interval when the effect re-runs or component unmounts.
     return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
