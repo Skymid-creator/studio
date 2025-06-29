@@ -7,49 +7,51 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'show-notification') {
+  if (event.data && event.data.type === 'show-notification') {
     const options = event.data.options || {};
-    showFocusNotification(options.silent);
+    self.registration.showNotification('Focus Check', {
+      body: 'Are you still focused on your task?',
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-72x72.png',
+      vibrate: [200, 100, 200],
+      tag: 'focus-prompt-notification',
+      requireInteraction: true,
+      silent: options.silent || false,
+      actions: [
+        { action: 'focused', title: '👍 I was focused' },
+        { action: 'distracted', title: '👎 I got distracted' },
+      ],
+    });
   }
 });
 
-function showFocusNotification(silent = false) {
-  const notificationOptions = {
-    body: 'How is your focus? Let us know.',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
-    actions: [
-      { action: 'focused', title: 'I was focused' },
-      { action: 'distracted', title: 'I got distracted' },
-    ],
-    tag: 'focus-prompt-notification',
-    requireInteraction: true,
-    silent: silent
-  };
-
-  self.registration.showNotification('Focus Check', notificationOptions)
-    .catch(err => console.error('Notification error:', err));
-}
-
+// Handles clicks on the notification action buttons OR the notification body
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  
+  // If user clicks body, event.action is '', which we treat as 'closed'
+  const action = event.action || 'closed'; 
 
-  const action = event.action;
-
-  if (action === 'focused' || action === 'distracted') {
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      if (clients && clients.length) {
-        clients[0].postMessage({ type: 'notification-action', action: action });
-        clients[0].focus();
-      }
-    });
-  }
+  // Always message the client to update its state
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    if (clientList.length > 0) {
+      clientList[0].postMessage({
+        type: 'notification-action',
+        action: action,
+      });
+    }
+  });
 });
 
+// Handles the user dismissing the notification (e.g., clicking the 'X')
 self.addEventListener('notificationclose', (event) => {
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      if (clients && clients.length > 0) {
-        clients[0].postMessage({ type: 'notification-action', action: 'closed' });
-      }
-    });
+  // Always message the client to update its state
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    if (clientList.length > 0) {
+      clientList[0].postMessage({
+        type: 'notification-action',
+        action: 'closed', // This is always the action on 'notificationclose'
+      });
+    }
+  });
 });
