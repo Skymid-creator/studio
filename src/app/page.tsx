@@ -55,6 +55,7 @@ export default function Home() {
             reg.showNotification('FocusPrompt', {
                 body: 'Are you focusing?',
                 tag: 'focus-prompt',
+                renotify: true,
                 silent: isSilent,
                 actions: [
                     { action: 'focused', title: 'I was focused' },
@@ -67,52 +68,43 @@ export default function Home() {
     });
   }, [notificationPermission, isSilent]);
   
-  // Use a ref to ensure the latest version of the functions are always available
-  const showNotificationRef = useRef(showNotification);
-  useEffect(() => {
-    showNotificationRef.current = showNotification;
-  }, [showNotification]);
-
-  const handleFocusResponseRef = useRef(handleFocusResponse);
-  useEffect(() => {
-    handleFocusResponseRef.current = handleFocusResponse;
-  }, [handleFocusResponse]);
-
-
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
     }
-
+  
+    const registerServiceWorker = async () => {
+      if ('serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.register('/sw.js');
+          console.log('Service Worker registered with scope:', registration.scope);
+        } catch (error) {
+          console.log('Service Worker registration failed:', error);
+        }
+      }
+    };
+  
+    registerServiceWorker();
+  
     const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'notification-action') {
-            const action = event.data.action;
-            if(action === 'focused' || action === 'distracted') {
-                handleFocusResponseRef.current(action);
-            } else {
-                // User clicked notification body or an unknown action
-                setIsAwaitingResponse(false);
-            }
-        } else if (event.data?.type === 'notification-closed') {
-            // User dismissed the notification without interacting
-            setIsAwaitingResponse(false);
+      if (event.data?.type === 'notification-action') {
+        const { action } = event.data;
+        if (action === 'focused' || action === 'distracted') {
+          handleFocusResponse(action);
+        } else if (action === 'closed') {
+          // User dismissed the notification without interaction
+          setIsAwaitingResponse(false);
         }
+      }
     };
-    
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
-            .then(registration => console.log('Service Worker registered with scope:', registration.scope))
-            .catch(error => console.log('Service Worker registration failed:', error));
-
-        navigator.serviceWorker.addEventListener('message', handleMessage);
-    }
-    
+  
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+  
     return () => {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.removeEventListener('message', handleMessage);
-        }
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
-  }, []);
+  }, [handleFocusResponse]);
+
 
   useEffect(() => {
     const stopTimer = () => {
@@ -128,7 +120,7 @@ export default function Home() {
       timerId.current = setInterval(() => {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
-            showNotificationRef.current();
+            showNotification();
             return intervalMinutes * 60;
           }
           return prevTime - 1;
@@ -140,7 +132,7 @@ export default function Home() {
     }
 
     return stopTimer;
-  }, [isTimerRunning, intervalMinutes]);
+  }, [isTimerRunning, intervalMinutes, showNotification]);
 
   const handleRequestPermission = () => {
     if (!('Notification' in window)) {
@@ -261,11 +253,11 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4 text-center">
-              <div className="p-4 bg-accent/80 text-accent-foreground rounded-lg">
+              <div className="p-4 bg-green-500 text-white rounded-lg">
                 <p className="text-4xl font-bold">{stats.focused}</p>
                 <p className="text-sm font-medium">Times Focused</p>
               </div>
-              <div className="p-4 bg-destructive/80 text-destructive-foreground rounded-lg">
+              <div className="p-4 bg-red-500 text-white rounded-lg">
                 <p className="text-4xl font-bold">{stats.distracted}</p>
                 <p className="text-sm font-medium">Times Distracted</p>
               </div>
