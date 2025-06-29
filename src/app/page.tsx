@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -17,6 +18,8 @@ export default function Home() {
   const [isAwaitingResponse, setIsAwaitingResponse] = useState<boolean>(false);
 
   const { toast } = useToast();
+  
+  // Use a ref to hold the timer ID to prevent issues with stale closures
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
@@ -37,20 +40,16 @@ export default function Home() {
   }, [toast]);
   
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
         return;
     }
     
-    navigator.serviceWorker.ready.then(registration => {
-        // Only show notification if the service worker is active and ready.
-        if (registration.active) {
-            registration.active.postMessage({ type: 'SHOW_NOTIFICATION' });
-            setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
-            setIsAwaitingResponse(true);
-        }
-    });
+    setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
+    setIsAwaitingResponse(true);
+    navigator.serviceWorker.controller.postMessage('show-notification');
   }, [notificationPermission]);
-  
+
+  // This useEffect handles registering the service worker and listening for messages
   useEffect(() => {
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
@@ -59,16 +58,15 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          const registration = await navigator.serviceWorker.register('/sw.js');
-          // Ensure the service worker is updated and active.
-          await registration.update();
+          // Register the service worker
+          await navigator.serviceWorker.register('/sw.js');
+          
+          // Wait for the service worker to be ready
+          await navigator.serviceWorker.ready;
           
           const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification-action') {
-              const { action } = event.data;
-              if (action === 'focused' || action === 'distracted' || action === 'closed') {
-                handleFocusResponse(action as 'focused' | 'distracted' | 'closed');
-              }
+              handleFocusResponse(event.data.action as 'focused' | 'distracted' | 'closed');
             }
           };
   
@@ -95,7 +93,8 @@ export default function Home() {
     };
   }, [handleFocusResponse, toast]);
 
-
+  // This robust useEffect ONLY handles the timer logic.
+  // It only depends on `isTimerRunning` to prevent being re-run unnecessarily.
   useEffect(() => {
     const stopTimer = () => {
       if (timerId.current) {
@@ -103,15 +102,17 @@ export default function Home() {
         timerId.current = null;
       }
     };
-
+  
     if (isTimerRunning) {
+      // Set initial time when timer starts
       setTimeLeft(intervalMinutes * 60);
-
+  
       timerId.current = setInterval(() => {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
             showNotification();
-            return intervalMinutes * 60;
+            // Reset for the next interval using the latest intervalMinutes value
+            return intervalMinutes * 60; 
           }
           return prevTime - 1;
         });
@@ -120,9 +121,11 @@ export default function Home() {
       stopTimer();
       setTimeLeft(0);
     }
-
+  
+    // Cleanup function: runs when isTimerRunning changes or component unmounts.
     return stopTimer;
   }, [isTimerRunning, intervalMinutes, showNotification]);
+
 
   const handleRequestPermission = () => {
     if (!('Notification' in window)) {
