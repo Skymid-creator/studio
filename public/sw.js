@@ -1,56 +1,55 @@
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'show-notification') {
-    const { options } = event.data;
-    const title = 'Focus Check';
-    const notificationOptions = {
-      body: 'Are you still focused on your task?',
-      tag: 'focus-prompt-notification', // Prevents duplicate notifications
-      renotify: true,
-      requireInteraction: true, // Keeps notification until user interacts
-      silent: options.silent || false,
-      actions: [
-        { action: 'focused', title: '✅ Yes, I was focused' },
-        { action: 'distracted', title: '❌ No, I got distracted' },
-      ],
-    };
-
-    const promise = self.registration.showNotification(title, notificationOptions);
-    event.waitUntil(promise);
+  if (event.data?.type === 'show-notification') {
+    const options = event.data.options || {};
+    showFocusNotification(options.silent);
   }
 });
 
-const handleAction = async (event, action) => {
-  // For 'notificationclose' event, there is no notification to close, it's already gone.
-  if (event.notification) {
-    event.notification.close();
-  }
+function showFocusNotification(silent = false) {
+  const notificationOptions = {
+    body: 'How is your focus? Let us know.',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/badge-72x72.png',
+    actions: [
+      { action: 'focused', title: 'I was focused' },
+      { action: 'distracted', title: 'I got distracted' },
+    ],
+    tag: 'focus-prompt-notification',
+    requireInteraction: true,
+    silent: silent
+  };
 
-  const clientsList = await self.clients.matchAll({
-    type: 'window',
-    includeUncontrolled: true,
-  });
-
-  if (clientsList.length > 0) {
-    // Only post message if we have a client to talk to
-    clientsList[0].postMessage({ type: 'notification-action', action });
-    // Attempt to focus the client
-    if (clientsList[0].focus) {
-      return clientsList[0].focus();
-    }
-  }
-};
-
+  self.registration.showNotification('Focus Check', notificationOptions)
+    .catch(err => console.error('Notification error:', err));
+}
 
 self.addEventListener('notificationclick', (event) => {
-  // event.action is the id from the actions array.
-  // If the user clicks the notification body and not a button, action is an empty string.
-  const action = event.action || 'closed';
-  event.waitUntil(handleAction(event, action));
+  event.notification.close();
+
+  const action = event.action;
+
+  if (action === 'focused' || action === 'distracted') {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      if (clients && clients.length) {
+        clients[0].postMessage({ type: 'notification-action', action: action });
+        clients[0].focus();
+      }
+    });
+  }
 });
 
 self.addEventListener('notificationclose', (event) => {
-  // This event fires when the user dismisses the notification via the 'X' or swiping it away.
-  // We want to inform the app so it can reset its state.
-  event.waitUntil(handleAction(event, 'closed'));
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      if (clients && clients.length > 0) {
+        clients[0].postMessage({ type: 'notification-action', action: 'closed' });
+      }
+    });
 });

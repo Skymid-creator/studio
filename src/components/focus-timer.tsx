@@ -22,39 +22,27 @@ export default function FocusTimer() {
   const { toast } = useToast();
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
-  // Using refs for callbacks and state values that are used inside setInterval
-  // This prevents the useEffect that manages the timer from re-running unnecessarily
   const intervalRef = useRef(intervalMinutes);
   useEffect(() => { intervalRef.current = intervalMinutes }, [intervalMinutes]);
 
   const showNotificationRef = useRef(() => {});
+  const focusResponseHandlerRef = useRef((type: 'focused' | 'distracted' | 'closed') => {});
 
   const handleFocusResponse = useCallback((type: 'focused' | 'distracted' | 'closed') => {
-      setIsAwaitingResponse(false); // Always reset awaiting state
+      setIsAwaitingResponse(false);
       if (type === 'focused') {
         setStats(s => ({ ...s, focused: s.focused + 1 }));
-        toast({
-            title: "Great job!",
-            description: "Focus session logged.",
-        });
+        toast({ title: "Great job!", description: "Focus session logged." });
       } else if (type === 'distracted') {
         setStats(s => ({ ...s, distracted: s.distracted + 1 }));
-        toast({
-            title: "It's okay!",
-            description: "Distraction logged. You can get back on track!",
-        });
+        toast({ title: "It's okay!", description: "Distraction logged. You can get back on track!" });
       }
-      // 'closed' action does not show a toast, just resets the UI.
   }, [toast]);
 
-  const focusResponseHandlerRef = useRef(handleFocusResponse);
   useEffect(() => {
     focusResponseHandlerRef.current = handleFocusResponse;
   }, [handleFocusResponse]);
 
-
-  // This effect runs only once to set up the service worker and its message listener.
-  // This is critical to prevent accumulating listeners.
   useEffect(() => {
     if (!('serviceWorker' in navigator && 'Notification' in window)) {
         toast({ title: 'Unsupported', description: 'Service Worker or Notifications not supported in this browser.', variant: 'destructive'});
@@ -63,8 +51,7 @@ export default function FocusTimer() {
 
     const registerServiceWorker = async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js');
-        console.log('Service Worker registered with scope:', registration.scope);
+        await navigator.serviceWorker.register('/sw.js');
       } catch (error) {
         console.error('Service Worker registration failed:', error);
         toast({ title: 'Service Worker Failed', description: 'Could not register the service worker.', variant: 'destructive'});
@@ -85,39 +72,34 @@ export default function FocusTimer() {
     
     navigator.serviceWorker.addEventListener('message', handleMessage);
 
-    // The cleanup function is critical and will now be called correctly.
     return () => {
         navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
-  }, [toast]); // Depends on toast to satisfy the linter, but it's stable.
-
+  }, [toast]);
 
   const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted') {
-      console.warn("Notification permission not granted.");
+    if (notificationPermission !== 'granted' || !navigator.serviceWorker.ready) {
       return;
     }
     
     navigator.serviceWorker.ready.then(registration => {
-      if (!registration.active) {
-        console.warn("Service worker is not active.");
-        return;
-      }
-      registration.active.postMessage({ type: 'show-notification', options: { silent: isSilent } });
+      registration.active?.postMessage({ type: 'show-notification', options: { silent: isSilent } });
       setStats(s => ({ ...s, prompts: s.prompts + 1 }));
       setIsAwaitingResponse(true);
-    }).catch(error => {
-      console.error("Service worker ready error:", error);
     });
   }, [notificationPermission, isSilent]);
   
-  showNotificationRef.current = showNotification;
-
-  // This effect manages the timer. It ONLY depends on `isTimerRunning`.
-  // This is the key to fixing the multiple timer bug.
   useEffect(() => {
+    showNotificationRef.current = showNotification;
+  }, [showNotification]);
+
+  useEffect(() => {
+    if (timerId.current) {
+        clearInterval(timerId.current);
+        timerId.current = null;
+    }
+
     if (isTimerRunning) {
-      // Start timer
       const initialTime = intervalRef.current * 60;
       setTimeLeft(initialTime);
 
@@ -125,24 +107,19 @@ export default function FocusTimer() {
         setTimeLeft(prevTime => {
           if (prevTime <= 1) {
             showNotificationRef.current();
-            return intervalRef.current * 60; // Reset for next interval
+            return intervalRef.current * 60;
           }
           return prevTime - 1;
         });
       }, 1000);
     } else {
-      // Stop timer
-      if (timerId.current) {
-        clearInterval(timerId.current);
-        timerId.current = null;
-      }
       setTimeLeft(0);
     }
   
-    // Cleanup on unmount or when isTimerRunning changes
     return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
+        timerId.current = null;
       }
     };
   }, [isTimerRunning]);
@@ -153,16 +130,9 @@ export default function FocusTimer() {
     Notification.requestPermission().then(permission => {
       setNotificationPermission(permission);
       if (permission === 'granted') {
-        toast({
-          title: 'Success!',
-          description: 'You will now receive focus notifications.',
-        });
+        toast({ title: 'Success!', description: 'You will now receive focus notifications.' });
       } else if (permission === 'denied') {
-        toast({
-          title: 'Permission Denied',
-          description: 'You must enable notifications in browser settings.',
-          variant: 'destructive',
-        });
+        toast({ title: 'Permission Denied', description: 'You must enable notifications in browser settings.', variant: 'destructive' });
       }
     });
   }, [toast]);
@@ -170,8 +140,6 @@ export default function FocusTimer() {
   const handleStartStopTimer = () => {
     if (notificationPermission !== 'granted') {
       handleRequestPermission();
-      // Do not start the timer if permission is not granted.
-      // The user must click start again after granting permission.
       return;
     }
     setIsTimerRunning(prev => !prev);
