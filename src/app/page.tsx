@@ -21,8 +21,6 @@ export default function Home() {
   
   const timerId = useRef<NodeJS.Timeout | null>(null);
 
-  // By using a ref, we can access the latest intervalMinutes value inside the
-  // setInterval callback without making the useEffect hook dependent on it.
   const latestIntervalMinutes = useRef(intervalMinutes);
   latestIntervalMinutes.current = intervalMinutes;
 
@@ -43,17 +41,30 @@ export default function Home() {
       setIsAwaitingResponse(false);
   }, [toast]);
   
-  const showNotification = useCallback(() => {
-    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+  const showNotification = useCallback(async () => {
+    if (notificationPermission !== 'granted' || !('serviceWorker' in navigator)) {
         return;
     }
     
+    // This is the key change: we wait for the service worker to be ready.
+    const registration = await navigator.serviceWorker.ready;
+    if (!registration.active) {
+      return;
+    }
+
     setStats((s) => ({ ...s, prompts: s.prompts + 1 }));
     setIsAwaitingResponse(true);
-    navigator.serviceWorker.controller.postMessage('show-notification');
+    
+    // We can now safely ask it to show the notification.
+    registration.showNotification('Focus Check!', {
+        body: 'Are you still focused on your task?',
+        actions: [
+          { action: 'focused', title: '✅ I was focused' },
+          { action: 'distracted', title: '❌ I got distracted' }
+        ]
+    });
   }, [notificationPermission]);
 
-  // We also put the notification function in a ref for the same reason.
   const latestShowNotification = useRef(showNotification);
   latestShowNotification.current = showNotification;
 
@@ -65,8 +76,7 @@ export default function Home() {
     const registerServiceWorker = async () => {
       if ('serviceWorker' in navigator) {
         try {
-          await navigator.serviceWorker.register('/sw.js');
-          await navigator.serviceWorker.ready;
+          const registration = await navigator.serviceWorker.register('/sw.js');
           
           const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification-action') {
@@ -97,9 +107,7 @@ export default function Home() {
     };
   }, [handleFocusResponse, toast]);
 
-  // This is the robust timer effect.
   useEffect(() => {
-    // If the timer shouldn't be running, clear any existing interval and reset the time.
     if (!isTimerRunning) {
       if (timerId.current) {
         clearInterval(timerId.current);
@@ -109,33 +117,24 @@ export default function Home() {
       return;
     }
 
-    // When the timer starts, set the initial time left using the ref.
     setTimeLeft(latestIntervalMinutes.current * 60);
 
-    // Start the interval.
     timerId.current = setInterval(() => {
       setTimeLeft(prevTime => {
-        // When the countdown reaches zero...
         if (prevTime <= 1) {
-          // ...trigger the notification using the ref to the latest function.
           latestShowNotification.current();
-          // ...and reset the timer for the next interval, using the ref for the latest interval value.
           return latestIntervalMinutes.current * 60; 
         }
-        // Otherwise, just decrement the time.
         return prevTime - 1;
       });
     }, 1000);
 
-    // The cleanup function clears the interval when the effect re-runs or the component unmounts.
     return () => {
       if (timerId.current) {
         clearInterval(timerId.current);
         timerId.current = null;
       }
     };
-  // THIS IS THE CRITICAL PART: This effect ONLY depends on `isTimerRunning`.
-  // It will not re-run when intervalMinutes or other state changes, preventing duplicate timers.
   }, [isTimerRunning]);
 
 

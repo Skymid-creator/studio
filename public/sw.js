@@ -1,43 +1,36 @@
-// This is the service worker script, which executes in a separate background thread.
-
-// Wait for the service worker to be installed and activated.
-self.addEventListener('install', event => {
+// This forces the service worker to activate immediately.
+self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
 });
 
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
+  // This claims control over all clients (tabs) of the app.
   event.waitUntil(self.clients.claim());
 });
 
-// Handle the 'message' event from the main page
-self.addEventListener('message', event => {
-  if (event.data?.type === 'SHOW_NOTIFICATION') {
-    self.registration.showNotification('Focus Check', {
-      body: 'Are you staying on task?',
-      actions: [
-        { action: 'focused', title: 'I was focused' },
-        { action: 'distracted', title: 'I got distracted' },
-      ],
-    });
-  }
-});
+// This is the main listener for clicks on the notification buttons.
+self.addEventListener('notificationclick', (event) => {
+  // The 'action' is the ID we gave to the button ('focused' or 'distracted').
+  const action = event.action;
 
-// Handle notification clicks
-self.addEventListener('notificationclick', event => {
-  const action = event.action || 'closed';
+  // We must close the notification manually.
   event.notification.close();
 
-  // Find the client window and send a message
+  // Find all the open windows/tabs for our app.
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // If a client window is open, focus it and send a message
-      if (clientList.length > 0) {
-        const client = clientList[0];
-        client.postMessage({ type: 'notification-action', action });
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Find the first visible client.
+      const client = clientList.find(c => c.visibilityState === 'visible');
+
+      if (client) {
+        // If we found a client, send it a message with the action that was clicked.
+        client.postMessage({
+          type: 'notification-action',
+          action: action || 'closed', // Send 'closed' if they dismissed without a button.
+        });
+        // Bring the tab into focus.
         return client.focus();
       }
-      // If no client is open, open a new one
-      return self.clients.openWindow('/');
     })
   );
 });
